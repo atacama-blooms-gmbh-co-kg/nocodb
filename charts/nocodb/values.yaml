@@ -89,6 +89,7 @@ storage:
 
 postgresql:
   enabled: false
+  host: ""
   auth:
     database: nocodb
     username: nocodb
