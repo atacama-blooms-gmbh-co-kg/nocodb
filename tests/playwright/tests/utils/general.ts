@@ -1,16 +1,21 @@
 // Selector objects include the text of any icons in the textContent property.
+
+import { Locator } from '@playwright/test';
+
 // This function removes the text of any icons from the textContent property.
-async function getTextExcludeIconText(selector) {
+async function getTextExcludeIconText(selector: Locator) {
   // Get the text of the selector
   let text = await selector.textContent();
 
   // List of icons
-  const icons = await selector.locator('.material-symbols-outlined');
+  const icons = selector.locator('.material-symbols');
   const iconCount = await icons.count();
 
   // Remove the text of each icon from the text
   for (let i = 0; i < iconCount; i++) {
-    await icons.nth(i).waitFor();
+    await icons.nth(i).waitFor({
+      state: 'attached',
+    });
     const iconText = await icons.nth(i).textContent();
     text = text.replace(iconText, '');
   }
@@ -21,7 +26,7 @@ async function getTextExcludeIconText(selector) {
 
 async function getIconText(selector) {
   // List of icons
-  const icons = await selector.locator('.material-symbols-outlined');
+  const icons = await selector.locator('.material-symbols');
 
   await icons.nth(0).waitFor();
   return await icons.nth(0).textContent();

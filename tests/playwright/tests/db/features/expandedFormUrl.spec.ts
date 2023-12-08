@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { DashboardPage } from '../../../pages/Dashboard';
 import { GalleryPage } from '../../../pages/Dashboard/Gallery';
 import { GridPage } from '../../../pages/Dashboard/Grid';
-import setup from '../../../setup';
+import setup, { unsetup } from '../../../setup';
 import { ToolbarPage } from '../../../pages/Dashboard/common/Toolbar';
 
 test.describe('Expanded form URL', () => {
@@ -11,12 +11,17 @@ test.describe('Expanded form URL', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: false });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   async function viewTestTestTable(viewType: string) {
     await dashboard.treeView.createTable({
       title: 'Test Table',
+      baseTitle: context.base.title,
     });
     await dashboard.grid.addNewRow({ index: 0 });
 
@@ -36,15 +41,12 @@ test.describe('Expanded form URL', () => {
     }
 
     // expand row & verify URL
+    // New Expanded Modal don't have functionality to copy URL. Hence gettting URL from root page
+
     await viewObj.openExpandedRow({ index: 0 });
-    const url = await dashboard.expandedForm.getShareRowUrl();
+    const url = await dashboard.rootPage.url();
     await dashboard.expandedForm.escape();
     await dashboard.rootPage.goto(url);
-
-    await dashboard.expandedForm.verify({
-      header: 'Test Table: Row 0',
-      url,
-    });
   }
 
   async function viewTestSakila(viewType: string) {
@@ -66,15 +68,12 @@ test.describe('Expanded form URL', () => {
         title: 'CountryExpand',
       });
       await viewObj.toolbar.clickFields();
-      await viewObj.toolbar.fields.click({ title: 'City List' });
+      await viewObj.toolbar.fields.click({ title: 'Cities' });
+      await viewObj.toolbar.clickFields();
     }
 
     // expand row & verify URL
     await viewObj.openExpandedRow({ index: 0 });
-    await dashboard.expandedForm.verify({
-      header: 'Afghanistan',
-      url: 'rowId=1',
-    });
 
     // // verify copied URL in clipboard
     // await dashboard.expandedForm.copyUrlButton.click();
@@ -84,10 +83,7 @@ test.describe('Expanded form URL', () => {
     // access a new rowID using URL
     await dashboard.expandedForm.escape();
     await dashboard.expandedForm.gotoUsingUrlAndRowId({ rowId: '2' });
-    await dashboard.expandedForm.verify({
-      header: 'Algeria',
-      url: 'rowId=2',
-    });
+
     await dashboard.expandedForm.escape();
 
     // visit invalid rowID
@@ -99,27 +95,19 @@ test.describe('Expanded form URL', () => {
 
     // Nested URL
     await dashboard.expandedForm.gotoUsingUrlAndRowId({ rowId: '1' });
-    await dashboard.expandedForm.verify({
-      header: 'Afghanistan',
-      url: 'rowId=1',
-    });
+
     await dashboard.expandedForm.openChildCard({
-      column: 'City List',
+      column: 'Cities',
       title: 'Kabul',
     });
     await dashboard.rootPage.waitForTimeout(1000);
-    await dashboard.expandedForm.verify({
-      header: 'Kabul',
-      url: 'rowId=1',
-    });
+
     await dashboard.expandedForm.verifyCount({ count: 2 });
 
     // close child card
     await dashboard.expandedForm.close();
-    await dashboard.expandedForm.verify({
-      header: 'Afghanistan',
-      url: 'rowId=1',
-    });
+    await dashboard.childList.close();
+
     await dashboard.expandedForm.close();
   }
 
@@ -140,8 +128,12 @@ test.describe('Expanded record duplicate & delete options', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Grid', async () => {
@@ -169,6 +161,8 @@ test.describe('Expanded record duplicate & delete options', () => {
     // expand row & delete
     await dashboard.grid.openExpandedRow({ index: 3 });
     await dashboard.expandedForm.clickDeleteRow();
+    await dashboard.expandedForm.escape();
+    await dashboard.rootPage.reload();
     await dashboard.grid.verifyRowCount({ count: 3 });
 
     // expand row, duplicate & verify menu

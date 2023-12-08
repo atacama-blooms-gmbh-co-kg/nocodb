@@ -8,6 +8,7 @@ import {
   ActiveCellInj,
   CellClickHookInj,
   ColumnInj,
+  EditColumnInj,
   EditModeInj,
   IsKanbanInj,
   ReadonlyInj,
@@ -22,9 +23,9 @@ import {
   onMounted,
   reactive,
   ref,
+  useBase,
   useEventListener,
   useMetas,
-  useProject,
   useRoles,
   useSelectedCellKeyupListener,
   watch,
@@ -42,6 +43,8 @@ const { modelValue, disableOptionCreation } = defineProps<Props>()
 
 const emit = defineEmits(['update:modelValue'])
 
+const { isMobileMode } = useGlobal()
+
 const column = inject(ColumnInj)!
 
 const readOnly = inject(ReadonlyInj)!
@@ -57,6 +60,8 @@ const active = computed(() => activeCell.value || isEditable.value)
 const isPublic = inject(IsPublicInj, ref(false))
 
 const isForm = inject(IsFormInj, ref(false))
+
+const isEditColumn = inject(EditColumnInj, ref(false))
 
 const rowHeight = inject(RowHeightInj, ref(undefined))
 
@@ -74,9 +79,9 @@ const { $api } = useNuxtApp()
 
 const { getMeta } = useMetas()
 
-const { hasRole } = useRoles()
+const { isUIAllowed } = useRoles()
 
-const { isPg, isMysql } = useProject()
+const { isPg, isMysql } = useBase()
 
 // a variable to keep newly created options value
 // temporary until it's add the option to column meta
@@ -99,7 +104,7 @@ const isOptionMissing = computed(() => {
   return (options.value ?? []).every((op) => op.title !== searchVal.value)
 })
 
-const hasEditRoles = computed(() => hasRole('owner', true) || hasRole('creator', true) || hasRole('editor', true))
+const hasEditRoles = computed(() => isUIAllowed('dataEdit'))
 
 const editAllowed = computed(() => (hasEditRoles.value || isForm.value) && active.value)
 
@@ -127,9 +132,13 @@ const vModel = computed({
 
 const selectedTitles = computed(() =>
   modelValue
-    ? typeof modelValue === 'string'
-      ? isMysql(column.value.base_id)
-        ? modelValue.split(',').sort((a, b) => {
+    ? Array.isArray(modelValue)
+      ? modelValue
+      : isMysql(column.value.source_id)
+      ? modelValue
+          .toString()
+          .split(',')
+          .sort((a, b) => {
             const opa = options.value.find((el) => el.title === a)
             const opb = options.value.find((el) => el.title === b)
             if (opa && opb) {
@@ -137,14 +146,13 @@ const selectedTitles = computed(() =>
             }
             return 0
           })
-        : modelValue.split(',')
-      : modelValue
+      : modelValue.toString().split(',')
     : [],
 )
 
 onMounted(() => {
   selectedIds.value = selectedTitles.value.flatMap((el) => {
-    const item = options.value.find((op) => op.title === el)
+    const item = options.value.find((op) => op.title === el || op.title === el?.trim())
     const itemIdOrTitle = item?.id || item?.title
     if (itemIdOrTitle) {
       return [itemIdOrTitle]
@@ -158,7 +166,7 @@ watch(
   () => modelValue,
   () => {
     selectedIds.value = selectedTitles.value.flatMap((el) => {
-      const item = options.value.find((op) => op.title === el)
+      const item = options.value.find((op) => op.title === el || op.title === el?.trim())
       if (item && (item.id || item.title)) {
         return [(item.id || item.title)!]
       }
@@ -242,7 +250,7 @@ async function addIfMissingAndSave() {
       // todo: refactor and avoid repetition
       if (updatedColMeta.cdf) {
         // Postgres returns default value wrapped with single quotes & casted with type so we have to get value between single quotes to keep it unified for all databases
-        if (isPg(column.value.base_id)) {
+        if (isPg(column.value.source_id)) {
           updatedColMeta.cdf = updatedColMeta.cdf.substring(
             updatedColMeta.cdf.indexOf(`'`) + 1,
             updatedColMeta.cdf.lastIndexOf(`'`),
@@ -250,7 +258,7 @@ async function addIfMissingAndSave() {
         }
 
         // Mysql escapes single quotes with backslash so we keep quotes but others have to unescaped
-        if (!isMysql(column.value.base_id)) {
+        if (!isMysql(column.value.source_id) && !isPg(column.value.source_id)) {
           updatedColMeta.cdf = updatedColMeta.cdf.replace(/''/g, "'")
         }
       }
@@ -316,6 +324,8 @@ const handleClose = (e: MouseEvent) => {
     !aselect.value.$el.contains(e.target) &&
     !document.querySelector('.nc-dropdown-multi-select-cell.active')?.contains(e.target as Node)
   ) {
+    // loose focus when clicked outside
+    isEditable.value = false
     isOpen.value = false
   }
 }
@@ -369,9 +379,10 @@ const selectedOpts = computed(() => {
       v-model:value="vModel"
       mode="multiple"
       class="w-full overflow-hidden"
+      :placeholder="isEditColumn ? $t('labels.optional') : ''"
       :bordered="false"
       clear-icon
-      show-search
+      :show-search="!isMobileMode"
       :show-arrow="editAllowed && !readOnly"
       :open="isOpen && editAllowed"
       :disabled="readOnly || !editAllowed"
@@ -380,6 +391,9 @@ const selectedOpts = computed(() => {
       @search="search"
       @keydown.stop
     >
+      <template #suffixIcon>
+        <GeneralIcon icon="arrowDown" class="text-gray-700 nc-select-expand-btn" />
+      </template>
       <a-select-option
         v-for="op of options"
         :key="op.id || op.title"
@@ -404,20 +418,14 @@ const selectedOpts = computed(() => {
       </a-select-option>
 
       <a-select-option
-        v-if="
-          searchVal &&
-          isOptionMissing &&
-          !isPublic &&
-          !disableOptionCreation &&
-          (hasRole('owner', true) || hasRole('creator', true))
-        "
+        v-if="searchVal && isOptionMissing && !isPublic && !disableOptionCreation && isUIAllowed('fieldEdit')"
         :key="searchVal"
         :value="searchVal"
       >
         <div class="flex gap-2 text-gray-500 items-center h-full">
           <component :is="iconMap.plusThick" class="min-w-4" />
           <div class="text-xs whitespace-normal">
-            Create new option named <strong>{{ searchVal }}</strong>
+            {{ $t('msg.selectOption.createNewOptionNamed') }} <strong>{{ searchVal }}</strong>
           </div>
         </div>
       </a-select-option>
@@ -479,6 +487,12 @@ const selectedOpts = computed(() => {
 
 .ms-close-icon:hover {
   color: rgba(0, 0, 0, 0.45);
+}
+
+.read-only {
+  .ms-close-icon {
+    display: none;
+  }
 }
 
 .rounded-tag {

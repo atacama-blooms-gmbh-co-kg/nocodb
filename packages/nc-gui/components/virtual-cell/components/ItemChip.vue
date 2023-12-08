@@ -1,9 +1,9 @@
 <script lang="ts" setup>
+import type { ColumnType } from 'nocodb-sdk'
 import { UITypes, isVirtualCol } from 'nocodb-sdk'
 import {
   ActiveCellInj,
   IsFormInj,
-  IsLockedInj,
   ReadonlyInj,
   iconMap,
   inject,
@@ -14,19 +14,21 @@ import {
 } from '#imports'
 
 interface Props {
-  value?: string | number | boolean
-  item?: any
+  value: string | number | boolean
+  item: any
   column: any
-  showUnlinkButton: boolean
+  showUnlinkButton?: boolean
+  border?: boolean
+  readonly?: boolean
 }
 
-const { value, item, column, showUnlinkButton } = defineProps<Props>()
+const { value, item, column, showUnlinkButton, border = true, readonly: readonlyProp } = defineProps<Props>()
 
 const emit = defineEmits(['unlink'])
 
 const { relatedTableMeta } = useLTARStoreOrThrow()!
 
-const { isUIAllowed } = useUIPermission()
+const { isUIAllowed } = useRoles()
 
 const readOnly = inject(ReadonlyInj, ref(false))
 
@@ -34,17 +36,16 @@ const active = inject(ActiveCellInj, ref(false))
 
 const isForm = inject(IsFormInj)!
 
-const isLocked = inject(IsLockedInj, ref(false))
-
 const { open } = useExpandedFormDetached()
 
 function openExpandedForm() {
-  if (!readOnly && !isLocked.value) {
+  const rowId = extractPkFromRow(item, relatedTableMeta.value.columns as ColumnType[])
+  if (!readOnly.value && !readonlyProp && rowId) {
     open({
       isOpen: true,
       row: { row: item, rowMeta: {}, oldRow: { ...item } },
       meta: relatedTableMeta.value,
-      loadRow: true,
+      rowId,
       useMetaFields: true,
     })
   }
@@ -59,6 +60,7 @@ export default {
 
 <template>
   <div
+    v-e="['c:row-expand:open']"
     class="chip group mr-1 my-1 flex items-center rounded-[2px] flex-row"
     :class="{ active, 'border-1 py-1 px-2': isAttachment(column) }"
     @click="openExpandedForm"
@@ -83,9 +85,8 @@ export default {
             class="min-w-max"
             :class="{
               'px-1 rounded-full flex-1': !isAttachment(column),
-              'border-gray-200 rounded border-1': ![UITypes.Attachment, UITypes.MultiSelect, UITypes.SingleSelect].includes(
-                column.uidt,
-              ),
+              'border-gray-200 rounded border-1':
+                border && ![UITypes.Attachment, UITypes.MultiSelect, UITypes.SingleSelect].includes(column.uidt),
             }"
           >
             <LazySmartsheetCell :model-value="value" :column="column" :edit-enabled="false" :virtual="true" :read-only="true" />
@@ -94,11 +95,7 @@ export default {
       </template>
     </span>
 
-    <div
-      v-show="active || isForm"
-      v-if="showUnlinkButton && !readOnly && !isLocked && isUIAllowed('xcDatatableEditable')"
-      class="flex items-center"
-    >
+    <div v-show="active || isForm" v-if="showUnlinkButton && !readOnly && isUIAllowed('dataEdit')" class="flex items-center">
       <component
         :is="iconMap.closeThick"
         class="nc-icon unlink-icon text-xs text-gray-500/50 group-hover:text-gray-500"

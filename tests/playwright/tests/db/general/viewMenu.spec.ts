@@ -1,6 +1,6 @@
 import { test } from '@playwright/test';
 import { DashboardPage } from '../../../pages/Dashboard';
-import setup from '../../../setup';
+import setup, { unsetup } from '../../../setup';
 import { isPg } from '../../../setup/db';
 
 test.describe('Grid view locked', () => {
@@ -9,32 +9,34 @@ test.describe('Grid view locked', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: false });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('ReadOnly lock & collaboration mode', async () => {
-    // close 'Team & Auth' tab
-    await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'Country' });
 
-    await dashboard.grid.toolbar.viewsMenu.verifyCollaborativeMode();
+    await dashboard.grid.verifyCollaborativeMode();
 
     // enable view lock
     await dashboard.grid.toolbar.viewsMenu.click({
-      menu: 'Collaborative View',
-      subMenu: 'Locked View',
+      menu: 'View Mode',
+      subMenu: 'Locked',
     });
 
     // verify view lock
-    await dashboard.grid.toolbar.viewsMenu.verifyLockMode();
+    await dashboard.grid.verifyLockMode();
 
     // enable collaborative view
     await dashboard.grid.toolbar.viewsMenu.click({
-      menu: 'Locked View',
-      subMenu: 'Collaborative View',
+      menu: 'View Mode',
+      subMenu: 'Collaborative',
     });
 
-    await dashboard.grid.toolbar.viewsMenu.verifyCollaborativeMode();
+    await dashboard.grid.verifyCollaborativeMode();
   });
 
   test('Download CSV', async () => {
@@ -50,7 +52,7 @@ test.describe('Grid view locked', () => {
 
     await dashboard.grid.toolbar.viewsMenu.click({
       menu: 'Download',
-      subMenu: 'Download as CSV',
+      subMenu: 'Download CSV',
       verificationInfo: {
         verificationFile: isPg(context) ? './fixtures/expectedBaseDownloadDataPg.txt' : null,
       },
@@ -70,7 +72,7 @@ test.describe('Grid view locked', () => {
 
     await dashboard.grid.toolbar.viewsMenu.click({
       menu: 'Download',
-      subMenu: 'Download as XLSX',
+      subMenu: 'Download Excel',
       verificationInfo: {
         verificationFile: isPg(context) ? './fixtures/expectedBaseDownloadDataPg.txt' : null,
       },

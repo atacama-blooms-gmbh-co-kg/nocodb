@@ -2,33 +2,38 @@ import { test } from '@playwright/test';
 import { airtableApiBase, airtableApiKey } from '../../../constants';
 import { DashboardPage } from '../../../pages/Dashboard';
 import { quickVerify } from '../../../quickTests/commonTest';
-import setup from '../../../setup';
-import { isPg, isSqlite } from '../../../setup/db';
+import setup, { NcContext, unsetup } from '../../../setup';
+import { enableQuickRun } from '../../../setup/db';
 
 test.describe('Import', () => {
+  if (enableQuickRun()) test.skip();
   let dashboard: DashboardPage;
-  let context: any;
+  let context: NcContext;
 
   test.setTimeout(150000);
 
   test.beforeEach(async ({ page }) => {
     page.setDefaultTimeout(70000);
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Airtable', async () => {
-    await dashboard.treeView.quickImport({ title: 'Airtable' });
+    await dashboard.treeView.quickImport({ title: 'Airtable', baseTitle: context.base.title, context });
     await dashboard.importAirtable.import({
       key: airtableApiKey,
-      baseId: airtableApiBase,
+      sourceId: airtableApiBase,
     });
     await dashboard.rootPage.waitForTimeout(1000);
     await quickVerify({ dashboard, airtableImport: true, context });
   });
 
   test('CSV', async () => {
-    await dashboard.treeView.quickImport({ title: 'CSV file' });
+    await dashboard.treeView.quickImport({ title: 'CSV file', baseTitle: context.base.title, context });
   });
 
   test('Excel', async () => {
@@ -43,13 +48,15 @@ test.describe('Import', () => {
       { name: 'Sheet4', columns: col },
     ];
 
-    await dashboard.treeView.quickImport({ title: 'Microsoft Excel' });
+    await dashboard.treeView.quickImport({ title: 'Microsoft Excel', baseTitle: context.base.title, context });
     await dashboard.importTemplate.import({
       file: `${process.cwd()}/fixtures/sampleFiles/simple.xlsx`,
       result: expected,
     });
 
-    const recordCells = { Number: '1', Float: isSqlite(context) || isPg(context) ? '1.1' : '1.10', Text: 'abc' };
+    await dashboard.treeView.openTable({ title: 'Sheet2' });
+
+    const recordCells = { number: '1', float: '1.1', text: 'abc' };
 
     for (const [key, value] of Object.entries(recordCells)) {
       await dashboard.grid.cell.verify({
@@ -61,6 +68,6 @@ test.describe('Import', () => {
   });
 
   test('JSON', async () => {
-    await dashboard.treeView.quickImport({ title: 'JSON file' });
+    await dashboard.treeView.quickImport({ title: 'JSON file', baseTitle: context.base.title, context });
   });
 });

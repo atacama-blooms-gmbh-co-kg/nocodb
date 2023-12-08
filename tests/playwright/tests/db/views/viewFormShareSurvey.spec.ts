@@ -1,7 +1,8 @@
 import { test } from '@playwright/test';
 import { DashboardPage } from '../../../pages/Dashboard';
 import { SurveyFormPage } from '../../../pages/Dashboard/SurveyForm';
-import setup from '../../../setup';
+import setup, { unsetup } from '../../../setup';
+import { enableQuickRun } from '../../../setup/db';
 
 test.describe('Share form', () => {
   let dashboard: DashboardPage;
@@ -10,10 +11,16 @@ test.describe('Share form', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: false });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Survey', async () => {
+    if (enableQuickRun()) test.skip();
+
     // close 'Team & Auth' tab
     await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'Country' });
@@ -30,12 +37,12 @@ test.describe('Share form', () => {
     });
     await dashboard.form.showAnotherFormRadioButton.click();
     await dashboard.form.showAnotherFormAfter5SecRadioButton.click();
-    await dashboard.form.toolbar.clickShareView();
-    await dashboard.form.toolbar.shareView.toggleSurveyMode();
 
-    const surveyLink = await dashboard.form.toolbar.shareView.getShareLink();
+    const surveyLink = await dashboard.form.topbar.getSharedViewUrl(true);
     await dashboard.rootPage.waitForTimeout(2000);
     await dashboard.rootPage.goto(surveyLink);
+    // fix me! kludge@hub; page wasn't getting loaded from previous step
+    await dashboard.rootPage.reload();
     await dashboard.rootPage.waitForTimeout(2000);
 
     surveyForm = new SurveyFormPage(dashboard.rootPage);
@@ -65,7 +72,7 @@ test.describe('Share form', () => {
     await surveyForm.validate({
       heading: 'Country Title',
       subHeading: 'Country Form Subtitle',
-      fieldLabel: 'City List',
+      fieldLabel: 'Cities',
       footer: '3 / 3',
     });
     await surveyForm.submitButton.click();

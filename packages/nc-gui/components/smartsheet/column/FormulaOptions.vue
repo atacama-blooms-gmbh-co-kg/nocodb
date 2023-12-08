@@ -2,23 +2,40 @@
 import type { Ref } from 'vue'
 import type { ListItem as AntListItem } from 'ant-design-vue'
 import jsep from 'jsep'
-import type { ColumnType, FormulaType } from 'nocodb-sdk'
-import { UITypes, jsepCurlyHook, substituteColumnIdWithAliasInFormula } from 'nocodb-sdk'
+import type { ColumnType, FormulaType, LinkToAnotherRecordType, TableType } from 'nocodb-sdk'
+import {
+  UITypes,
+  isLinksOrLTAR,
+  isNumericCol,
+  isSystemColumn,
+  jsepCurlyHook,
+  substituteColumnIdWithAliasInFormula,
+  validateDateWithUnknownFormat,
+} from 'nocodb-sdk'
 import {
   MetaInj,
   NcAutocompleteTree,
+  computed,
   formulaList,
   formulaTypes,
   formulas,
   getUIDTIcon,
   getWordUntilCaret,
   iconMap,
+  inject,
   insertAtCursor,
+  isDate,
+  nextTick,
   onMounted,
+  ref,
+  storeToRefs,
+  useBase,
   useColumnCreateStoreOrThrow,
   useDebounceFn,
+  useI18n,
+  useMetas,
+  useNocoEe,
   useVModel,
-  validateDateWithUnknownFormat,
 } from '#imports'
 
 const props = defineProps<{
@@ -32,6 +49,14 @@ const uiTypesNotSupportedInFormulas = [UITypes.QrCode, UITypes.Barcode]
 const vModel = useVModel(props, 'value', emit)
 
 const { setAdditionalValidations, validateInfos, sqlUi, column } = useColumnCreateStoreOrThrow()
+
+const { t } = useI18n()
+
+const baseStore = useBase()
+
+const { tables } = storeToRefs(baseStore)
+
+const { predictFunction: _predictFunction } = useNocoEe()
 
 enum JSEPNode {
   COMPOUND = 'Compound',
@@ -50,6 +75,23 @@ const meta = inject(MetaInj, ref())
 const supportedColumns = computed(
   () => meta?.value?.columns?.filter((col) => !uiTypesNotSupportedInFormulas.includes(col.uidt as UITypes)) || [],
 )
+const { metas } = useMetas()
+
+const refTables = computed(() => {
+  if (!tables.value || !tables.value.length || !meta.value || !meta.value.columns) {
+    return []
+  }
+
+  const _refTables = meta.value.columns
+    .filter((column) => isLinksOrLTAR(column) && !column.system && column.source_id === meta.value?.source_id)
+    .map((column) => ({
+      col: column.colOptions,
+      column,
+      ...tables.value.find((table) => table.id === (column.colOptions as LinkToAnotherRecordType).fk_related_model_id),
+    }))
+    .filter((table) => (table.col as LinkToAnotherRecordType)?.fk_related_model_id === table.id && !table.mm)
+  return _refTables as Required<TableType & { column: ColumnType; col: Required<LinkToAnotherRecordType> }>[]
+})
 
 const validators = {
   formula_raw: [
@@ -70,7 +112,7 @@ const validators = {
 
 const availableFunctions = formulaList
 
-const availableBinOps = ['+', '-', '*', '/', '>', '<', '==', '<=', '>=', '!=']
+const availableBinOps = ['+', '-', '*', '/', '>', '<', '==', '<=', '>=', '!=', '&']
 
 const autocomplete = ref(false)
 
@@ -78,7 +120,7 @@ const formulaRef = ref()
 
 const sugListRef = ref()
 
-const sugOptionsRef = ref<typeof AntListItem[]>([])
+const sugOptionsRef = ref<(typeof AntListItem)[]>([])
 
 const wordToComplete = ref<string | undefined>('')
 
@@ -152,17 +194,17 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
     const calleeName = parsedTree.callee.name.toUpperCase()
     // validate function name
     if (!availableFunctions.includes(calleeName)) {
-      errors.add(`'${calleeName}' function is not available`)
+      errors.add(t('msg.formula.functionNotAvailable', { function: calleeName }))
     }
     // validate arguments
     const validation = formulas[calleeName] && formulas[calleeName].validation
     if (validation && validation.args) {
       if (validation.args.rqd !== undefined && validation.args.rqd !== parsedTree.arguments.length) {
-        errors.add(`'${calleeName}' required ${validation.args.rqd} arguments`)
+        errors.add(t('msg.formula.requiredArgumentsFormula', { requiredArguments: validation.args.rqd, calleeName }))
       } else if (validation.args.min !== undefined && validation.args.min > parsedTree.arguments.length) {
-        errors.add(`'${calleeName}' required minimum ${validation.args.min} arguments`)
+        errors.add(t('msg.formula.minRequiredArgumentsFormula', { minRequiredArguments: validation.args.min, calleeName }))
       } else if (validation.args.max !== undefined && validation.args.max < parsedTree.arguments.length) {
-        errors.add(`'${calleeName}' required maximum ${validation.args.max} arguments`)
+        errors.add(t('msg.formula.maxRequiredArgumentsFormula', { maxRequiredArguments: validation.args.max, calleeName }))
       }
     }
     parsedTree.arguments.map((arg: Record<string, any>) => validateAgainstMeta(arg, errors))
@@ -178,7 +220,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
             formulaTypes.DATE,
             (v: any) => {
               if (!validateDateWithUnknownFormat(v)) {
-                typeErrors.add('The first parameter of WEEKDAY() should have date value')
+                typeErrors.add(t('msg.formula.firstParamWeekDayHaveDate'))
               }
             },
             typeErrors,
@@ -192,9 +234,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
                 typeof v !== 'string' ||
                 !['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].includes(v.toLowerCase())
               ) {
-                typeErrors.add(
-                  'The second parameter of WEEKDAY() should have the value either "sunday", "monday", "tuesday", "wednesday", "thursday", "friday" or "saturday"',
-                )
+                typeErrors.add(t('msg.formula.secondParamWeekDayHaveDate'))
               }
             },
             typeErrors,
@@ -210,7 +250,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
             formulaTypes.DATE,
             (v: any) => {
               if (!validateDateWithUnknownFormat(v)) {
-                typeErrors.add('The first parameter of DATEADD() should have date value')
+                typeErrors.add(t('msg.formula.firstParamDateAddHaveDate'))
               }
             },
             typeErrors,
@@ -221,7 +261,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
             formulaTypes.NUMERIC,
             (v: any) => {
               if (typeof v !== 'number') {
-                typeErrors.add('The second parameter of DATEADD() should have numeric value')
+                typeErrors.add(t('msg.formula.secondParamDateAddHaveNumber'))
               }
             },
             typeErrors,
@@ -232,7 +272,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
             formulaTypes.STRING,
             (v: any) => {
               if (!['day', 'week', 'month', 'year'].includes(v)) {
-                typeErrors.add('The third parameter of DATEADD() should have the value either "day", "week", "month" or "year"')
+                typeErrors.add(typeErrors.add(t('msg.formula.thirdParamDateAddHaveDate')))
               }
             },
             typeErrors,
@@ -244,7 +284,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
             formulaTypes.DATE,
             (v: any) => {
               if (!validateDateWithUnknownFormat(v)) {
-                typeErrors.add('The first parameter of DATETIME_DIFF() should have date value')
+                typeErrors.add(t('msg.formula.firstParamDateDiffHaveDate'))
               }
             },
             typeErrors,
@@ -255,7 +295,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
             formulaTypes.DATE,
             (v: any) => {
               if (!validateDateWithUnknownFormat(v)) {
-                typeErrors.add('The second parameter of DATETIME_DIFF() should have date value')
+                typeErrors.add(t('msg.formula.secondParamDateDiffHaveDate'))
               }
             },
             typeErrors,
@@ -287,9 +327,7 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
                   'y',
                 ].includes(v)
               ) {
-                typeErrors.add(
-                  'The third parameter of DATETIME_DIFF() should have value either "milliseconds", "ms", "seconds", "s", "minutes", "m", "hours", "h", "days", "d", "weeks", "w", "months", "M", "quarters", "Q", "years", or "y"',
-                )
+                typeErrors.add(t('msg.formula.thirdParamDateDiffHaveDate'))
               }
             },
             typeErrors,
@@ -301,7 +339,11 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
     errors = new Set([...errors, ...typeErrors])
   } else if (parsedTree.type === JSEPNode.IDENTIFIER) {
     if (supportedColumns.value.filter((c) => !column || column.value?.id !== c.id).every((c) => c.title !== parsedTree.name)) {
-      errors.add(`Column '${parsedTree.name}' is not available`)
+      errors.add(
+        t('msg.formula.columnNotAvailable', {
+          columnName: parsedTree.name,
+        }),
+      )
     }
 
     // check circular reference
@@ -385,12 +427,12 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
       }
       // vertices not same as visited = cycle found
       if (vertices !== visited) {
-        errors.add('Can’t save field because it causes a circular reference')
+        errors.add(t('msg.formula.cantSaveCircularReference'))
       }
     }
   } else if (parsedTree.type === JSEPNode.BINARY_EXP) {
     if (!availableBinOps.includes(parsedTree.operator)) {
-      errors.add(`'${parsedTree.operator}' operation is not available`)
+      errors.add(t('msg.formula.operationNotAvailable', { operation: parsedTree.operator }))
     }
     validateAgainstMeta(parsedTree.left, errors)
     validateAgainstMeta(parsedTree.right, errors)
@@ -398,10 +440,10 @@ function validateAgainstMeta(parsedTree: any, errors = new Set(), typeErrors = n
     // do nothing
   } else if (parsedTree.type === JSEPNode.COMPOUND) {
     if (parsedTree.body.length) {
-      errors.add('Can’t save field because the formula is invalid')
+      errors.add(t('msg.formula.cantSaveFieldFormulaInvalid'))
     }
   } else {
-    errors.add('Can’t save field because the formula is invalid')
+    errors.add(t('msg.formula.cantSaveFieldFormulaInvalid'))
   }
   return errors
 }
@@ -415,11 +457,11 @@ function validateAgainstType(parsedTree: any, expectedType: string, func: any, t
       func(parsedTree.value)
     } else if (expectedType === formulaTypes.NUMERIC) {
       if (typeof parsedTree.value !== 'number') {
-        typeErrors.add('Numeric type is expected')
+        typeErrors.add(t('msg.formula.numericTypeIsExpected'))
       }
     } else if (expectedType === formulaTypes.STRING) {
       if (typeof parsedTree.value !== 'string') {
-        typeErrors.add('string type is expected')
+        typeErrors.add(t('msg.formula.stringTypeIsExpected'))
       }
     }
   } else if (parsedTree.type === JSEPNode.IDENTIFIER) {
@@ -430,11 +472,16 @@ function validateAgainstType(parsedTree: any, expectedType: string, func: any, t
     }
 
     if (col.uidt === UITypes.Formula) {
-      const foundType = getRootDataType(jsep((col as any).formula_raw))
+      const foundType = getRootDataType(jsep(col.colOptions?.formula_raw))
       if (foundType === 'N/A') {
-        typeErrors.add(`Not supported to reference column ${col.title}`)
+        typeErrors.add(t('msg.formula.notSupportedToReferenceColumn', { columnName: col.title }))
       } else if (expectedType !== foundType) {
-        typeErrors.add(`Type ${expectedType} is expected but found Type ${foundType}`)
+        typeErrors.add(
+          t('msg.formula.typeIsExpectedButFound', {
+            type: expectedType,
+            found: foundType,
+          }),
+        )
       }
     } else {
       switch (col.uidt) {
@@ -448,7 +495,11 @@ function validateAgainstType(parsedTree: any, expectedType: string, func: any, t
         case UITypes.URL:
           if (expectedType !== formulaTypes.STRING) {
             typeErrors.add(
-              `Column '${parsedTree.name}' with ${formulaTypes.STRING} type is found but ${expectedType} type is expected`,
+              t('msg.formula.columnWithTypeFoundButExpected', {
+                columnName: parsedTree.name,
+                columnType: formulaTypes.STRING,
+                expectedType,
+              }),
             )
           }
           break
@@ -463,7 +514,11 @@ function validateAgainstType(parsedTree: any, expectedType: string, func: any, t
         case UITypes.Currency:
           if (expectedType !== formulaTypes.NUMERIC) {
             typeErrors.add(
-              `Column '${parsedTree.name}' with ${formulaTypes.NUMERIC} type is found but ${expectedType} type is expected`,
+              t('msg.formula.columnWithTypeFoundButExpected', {
+                columnName: parsedTree.name,
+                columnType: formulaTypes.NUMERIC,
+                expectedType,
+              }),
             )
           }
           break
@@ -475,10 +530,61 @@ function validateAgainstType(parsedTree: any, expectedType: string, func: any, t
         case UITypes.LastModifiedTime:
           if (expectedType !== formulaTypes.DATE) {
             typeErrors.add(
-              `Column '${parsedTree.name}' with ${formulaTypes.DATE} type is found but ${expectedType} type is expected`,
+              t('msg.formula.columnWithTypeFoundButExpected', {
+                columnName: parsedTree.name,
+                columnType: formulaTypes.DATE,
+                expectedType,
+              }),
             )
           }
           break
+
+        case UITypes.Rollup: {
+          const rollupFunction = col.colOptions.rollup_function
+          if (['count', 'avg', 'sum', 'countDistinct', 'sumDistinct', 'avgDistinct'].includes(rollupFunction)) {
+            // these functions produce a numeric value, which can be used in numeric functions
+            if (expectedType !== formulaTypes.NUMERIC) {
+              typeErrors.add(
+                t('msg.formula.columnWithTypeFoundButExpected', {
+                  columnName: parsedTree.name,
+                  columnType: formulaTypes.NUMERIC,
+                  expectedType,
+                }),
+              )
+            }
+          } else {
+            // the value is based on the foreign rollup column type
+            const selectedTable = refTables.value.find((t) => t.column.id === col.colOptions.fk_relation_column_id)
+            const refTableColumns = metas.value[selectedTable.id].columns.filter(
+              (c: ColumnType) =>
+                vModel.value.fk_lookup_column_id === c.id ||
+                (!isSystemColumn(c) && c.id !== vModel.value.id && c.uidt !== UITypes.Links),
+            )
+            const childFieldColumn = refTableColumns.find(
+              (column: ColumnType) => column.id === col.colOptions.fk_rollup_column_id,
+            )
+            const abstractType = sqlUi.value.getAbstractType(childFieldColumn)
+
+            if (expectedType === formulaTypes.DATE && !isDate(childFieldColumn, sqlUi.value.getAbstractType(childFieldColumn))) {
+              typeErrors.add(
+                t('msg.formula.columnWithTypeFoundButExpected', {
+                  columnName: parsedTree.name,
+                  columnType: abstractType,
+                  expectedType,
+                }),
+              )
+            } else if (expectedType === formulaTypes.NUMERIC && !isNumericCol(childFieldColumn)) {
+              typeErrors.add(
+                t('msg.formula.columnWithTypeFoundButExpected', {
+                  columnName: parsedTree.name,
+                  columnType: abstractType,
+                  expectedType,
+                }),
+              )
+            }
+          }
+          break
+        }
 
         // not supported
         case UITypes.ForeignKey:
@@ -487,7 +593,6 @@ function validateAgainstType(parsedTree: any, expectedType: string, func: any, t
         case UITypes.Time:
         case UITypes.Percent:
         case UITypes.Duration:
-        case UITypes.Rollup:
         case UITypes.Lookup:
         case UITypes.Barcode:
         case UITypes.Button:
@@ -495,19 +600,29 @@ function validateAgainstType(parsedTree: any, expectedType: string, func: any, t
         case UITypes.Collaborator:
         case UITypes.QrCode:
         default:
-          typeErrors.add(`Not supported to reference column '${parsedTree.name}'`)
+          typeErrors.add(t('msg.formula.notSupportedToReferenceColumn', { columnName: parsedTree.name }))
           break
       }
     }
   } else if (parsedTree.type === JSEPNode.UNARY_EXP || parsedTree.type === JSEPNode.BINARY_EXP) {
     if (expectedType !== formulaTypes.NUMERIC) {
       // parsedTree.name won't be available here
-      typeErrors.add(`${formulaTypes.NUMERIC} type is found but ${expectedType} type is expected`)
+      typeErrors.add(
+        t('msg.formula.typeIsExpectedButFound', {
+          type: formulaTypes.NUMERIC,
+          found: expectedType,
+        }),
+      )
     }
   } else if (parsedTree.type === JSEPNode.CALL_EXP) {
     const calleeName = parsedTree.callee.name.toUpperCase()
     if (formulas[calleeName]?.type && expectedType !== formulas[calleeName].type) {
-      typeErrors.add(`${expectedType} not matched with ${formulas[calleeName].type}`)
+      typeErrors.add(
+        t('msg.formula.typeIsExpectedButFound', {
+          type: expectedType,
+          found: formulas[calleeName].type,
+        }),
+      )
     }
   }
   return typeErrors
@@ -671,8 +786,6 @@ if ((column.value?.colOptions as any)?.formula_raw) {
       meta?.value?.columns as ColumnType[],
       (column.value?.colOptions as any)?.formula_raw,
     ) || ''
-} else {
-  vModel.value.formula_raw = ''
 }
 
 // set additional validations
@@ -683,11 +796,22 @@ setAdditionalValidations({
 onMounted(() => {
   jsep.plugins.register(jsepCurlyHook)
 })
+
+// const predictFunction = async () => {
+//   await _predictFunction(formState, meta, supportedColumns, suggestionsList, vModel)
+// }
 </script>
 
 <template>
   <div class="formula-wrapper">
-    <a-form-item v-bind="validateInfos.formula_raw" label="Formula">
+    <a-form-item v-bind="validateInfos.formula_raw" :label="$t('datatype.Formula')">
+      <!-- <GeneralIcon
+        v-if="isEeUI"
+        icon="magic"
+        :class="{ 'nc-animation-pulse': loadMagic }"
+        class="text-orange-400 cursor-pointer absolute right-1 top-1 z-10"
+        @click="predictFunction()"
+      /> -->
       <a-textarea
         ref="formulaRef"
         v-model:value="vModel.formula_raw"
@@ -700,14 +824,25 @@ onMounted(() => {
     </a-form-item>
 
     <div class="text-gray-600 mt-2 mb-4 prose-sm">
-      Hint: Use {} to reference columns, e.g: {column_name}. For more, please check out
-      <a class="prose-sm" href="https://docs.nocodb.com/setup-and-usages/formulas#available-formula-features" target="_blank">
-        Formulas.
+      {{
+        // As using {} in translation will be treated as placeholder, and this translation contain {} as part of th text
+        $t('msg.formula.hintStart', {
+          placeholder1: '{}',
+          placeholder2: '{column_name}',
+        })
+      }}
+      <a
+        class="prose-sm"
+        href="https://docs.nocodb.com/setup-and-usages/formulas#available-formula-features"
+        target="_blank"
+        rel="noopener"
+      >
+        {{ $t('msg.formula.hintEnd') }}
       </a>
     </div>
 
     <div class="h-[250px] overflow-auto scrollbar-thin-primary">
-      <a-list ref="sugListRef" :data-source="suggestion" :locale="{ emptyText: 'No suggested formula was found' }">
+      <a-list ref="sugListRef" :data-source="suggestion" :locale="{ emptyText: $t('msg.formula.noSuggestedFormulaFound') }">
         <template #renderItem="{ item, index }">
           <a-list-item
             :ref="
@@ -728,9 +863,9 @@ onMounted(() => {
                   <a-col :span="18">
                     <div v-if="item.type === 'function'" class="text-xs text-gray-500">
                       {{ item.description }} <br /><br />
-                      Syntax: <br />
+                      {{ $t('labels.syntax') }}: <br />
                       {{ item.syntax }} <br /><br />
-                      Examples: <br />
+                      {{ $t('labels.examples') }}: <br />
 
                       <div v-for="(example, idx) of item.examples" :key="idx">
                         <div>({{ idx + 1 }}): {{ example }}</div>

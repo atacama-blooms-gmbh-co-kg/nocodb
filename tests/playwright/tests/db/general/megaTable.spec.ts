@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import setup from '../../../setup';
+import setup, { unsetup } from '../../../setup';
 import { UITypes } from 'nocodb-sdk';
 import { Api } from 'nocodb-sdk';
 let api: Api<any>;
@@ -40,6 +40,10 @@ test.describe.serial('Test table', () => {
         'xc-auth': context.token,
       },
     });
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test.skip('mega table', async ({ page }) => {
@@ -83,8 +87,8 @@ test.describe.serial('Test table', () => {
     }
 
     try {
-      const project = await api.project.read(context.project.id);
-      table_1 = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+      const base = await api.base.read(context.base.id);
+      table_1 = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
         table_name: 'table_1',
         title: 'table_1',
         columns: table_1_columns,
@@ -141,14 +145,14 @@ test.describe.serial('Test table', () => {
 
         // insert as soon as we have 1k records ready
         if (table_1_rows.length === bulkInsertAfterRows) {
-          await api.dbTableRow.bulkCreate('noco', context.project.id, table_1.id, table_1_rows);
+          await api.dbTableRow.bulkCreate('noco', context.base.id, table_1.id, table_1_rows);
           console.log(`table_1_rows ${rowCnt + 1} created`);
           table_1_rows.length = 0;
         }
       }
 
       if (table_1_rows.length > 0) {
-        await api.dbTableRow.bulkCreate('noco', context.project.id, table_1.id, table_1_rows);
+        await api.dbTableRow.bulkCreate('noco', context.base.id, table_1.id, table_1_rows);
         console.log(`table_1_rows ${megaTblRows} created`);
       }
     } catch (e) {
@@ -177,15 +181,15 @@ test.describe.serial('Test table', () => {
       }
     );
 
-    const project = await api.project.read(context.project.id);
+    const base = await api.base.read(context.base.id);
     // eslint-disable-next-line prefer-const
-    table_1 = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+    table_1 = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
       table_name: 'table_1',
       title: 'table_1',
       columns: columns,
     });
     // eslint-disable-next-line prefer-const
-    table_2 = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+    table_2 = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
       table_name: 'table_2',
       title: 'table_2',
       columns: columns,
@@ -198,13 +202,13 @@ test.describe.serial('Test table', () => {
         SingleLineText: `SingleLineText${i + 1}`,
       });
     }
-    await api.dbTableRow.bulkCreate('noco', context.project.id, table_1.id, rows);
-    await api.dbTableRow.bulkCreate('noco', context.project.id, table_2.id, rows);
+    await api.dbTableRow.bulkCreate('noco', context.base.id, table_1.id, rows);
+    await api.dbTableRow.bulkCreate('noco', context.base.id, table_2.id, rows);
 
     await api.dbTableColumn.create(table_2.id, {
-      uidt: UITypes.LinkToAnotherRecord,
-      title: 'LinkToAnotherRecord',
-      column_name: 'LinkToAnotherRecord',
+      uidt: UITypes.Links,
+      title: 'Links',
+      column_name: 'Links',
       parentId: table_1.id,
       childId: table_2.id,
       type: 'hm',
@@ -212,12 +216,12 @@ test.describe.serial('Test table', () => {
 
     // // nested add : hm
     // for (let i = 1; i <= 1000; i++) {
-    //   await api.dbTableRow.nestedAdd('noco', project.title, table_1.table_name, i, 'hm', 'LinkToAnotherRecord', `${i}`);
+    //   await api.dbTableRow.nestedAdd('noco', base.title, table_1.table_name, i, 'hm', 'LinkToAnotherRecord', `${i}`);
     // }
 
     // nested add : bt
     for (let i = 1; i <= 1000; i++) {
-      await api.dbTableRow.nestedAdd('noco', project.title, table_2.table_name, i, 'bt', 'table_1', `${i}`);
+      await api.dbTableRow.nestedAdd('noco', base.title, table_2.table_name, i, 'bt', 'table_1', `${i}`);
     }
   });
 });

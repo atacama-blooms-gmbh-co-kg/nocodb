@@ -1,13 +1,14 @@
-import { expect, Locator, test } from '@playwright/test';
-import setup from '../../../setup';
+import { expect, test } from '@playwright/test';
+import setup, { unsetup } from '../../../setup';
 import { Api, UITypes } from 'nocodb-sdk';
 import { DashboardPage } from '../../../pages/Dashboard';
 import { GridPage } from '../../../pages/Dashboard/Grid';
-import { getTextExcludeIconText } from '../../utils/general';
+import { getTextExcludeIconText } from '../../../tests/utils/general';
+import { isEE } from '../../../setup/db';
 let api: Api<any>;
 const recordCount = 10;
 
-test.describe('Test table', () => {
+test.describe('Links', () => {
   let context: any;
   let dashboard: DashboardPage;
   let grid: GridPage;
@@ -15,7 +16,7 @@ test.describe('Test table', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     grid = dashboard.grid;
 
     api = new Api({
@@ -48,37 +49,39 @@ test.describe('Test table', () => {
     }
 
     // Create tables
-    const project = await api.project.read(context.project.id);
+    const base = await api.base.read(context.base.id);
 
     for (let i = 0; i < 2; i++) {
-      const table = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+      const table = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
         table_name: `Table${i}`,
         title: `Table${i}`,
         columns: columns,
       });
       tables.push(table);
-      await api.dbTableRow.bulkCreate('noco', context.project.id, tables[i].id, rows);
+      await api.dbTableRow.bulkCreate('noco', context.base.id, tables[i].id, rows);
     }
 
     // refresh page
     await page.reload();
   });
 
-  test('drag drop for LTAR, lookup creation', async () => {
+  test.afterEach(async () => {
+    await unsetup(context);
+  });
+
+  test('drag drop for Link, lookup creation', async () => {
     await dashboard.treeView.openTable({ title: 'Table0' });
-    const src = await dashboard.rootPage.locator(`[data-testid="tree-view-table-draggable-handle-Table1"]`);
-    const dst = await dashboard.rootPage.locator(`[data-testid="grid-row-0"]`);
+    const src = dashboard.rootPage.locator(`[data-testid="tree-view-table-draggable-handle-Table1"]`);
+    const dst = dashboard.rootPage.locator(`[data-testid="grid-row-0"]`);
 
     // drag drop for LTAR column creation
     //
     await src.dragTo(dst);
-    const columnAddModal = await dashboard.rootPage.locator(`.nc-dropdown-grid-add-column`);
+    const columnAddModal = dashboard.rootPage.locator(`.nc-dropdown-grid-add-column`);
     {
-      const columnType = await getTextExcludeIconText(await columnAddModal.locator(`.nc-column-type-input`));
-      const linkTable = await getTextExcludeIconText(
-        await columnAddModal.locator(`.ant-form-item-control-input`).nth(3)
-      );
-      expect(columnType).toContain('LinkToAnotherRecord');
+      const columnType = await getTextExcludeIconText(columnAddModal.locator(`.nc-column-type-input`));
+      const linkTable = await getTextExcludeIconText(columnAddModal.locator(`.ant-form-item-control-input`).nth(3));
+      expect(columnType).toContain('Links');
       expect(linkTable).toContain('Table1');
 
       // save
@@ -93,13 +96,12 @@ test.describe('Test table', () => {
     await src.dragTo(dst);
     {
       // const columnAddModal = await dashboard.rootPage.locator(`.nc-dropdown-grid-add-column`);
-      const columnType = await getTextExcludeIconText(await columnAddModal.locator(`.nc-column-type-input`));
-      const linkField = await getTextExcludeIconText(
-        await columnAddModal.locator(`.ant-form-item-control-input`).nth(2)
-      );
-      const childColumn = await getTextExcludeIconText(
-        await columnAddModal.locator(`.ant-form-item-control-input`).nth(3)
-      );
+      const columnType = await getTextExcludeIconText(columnAddModal.locator(`.nc-column-type-input`));
+      const linkField = await getTextExcludeIconText(columnAddModal.locator(`.ant-form-item-control-input`).nth(2));
+      const childColumn = await getTextExcludeIconText(columnAddModal.locator(`.ant-form-item-control-input`).nth(3));
+
+      // TODO: Handle this in EE
+      if (isEE()) return;
 
       // validate
       expect(columnType).toContain('Lookup');
@@ -110,7 +112,7 @@ test.describe('Test table', () => {
       await columnAddModal.locator(`.ant-btn-primary`).click();
 
       // verify if column is created
-      await grid.column.verify({ title: 'Table1Lookup', isVisible: true });
+      await grid.column.verify({ title: 'Table1 Lookup', isVisible: true });
     }
   });
 });

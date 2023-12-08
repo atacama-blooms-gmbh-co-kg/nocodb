@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
+import { dateFormats, isSystemColumn, timeFormats } from 'nocodb-sdk'
 import {
   ActiveCellInj,
   CellClickHookInj,
   ColumnInj,
+  EditColumnInj,
   ReadonlyInj,
-  dateFormats,
   inject,
   isDrawerOrModalExist,
   parseProp,
   ref,
-  timeFormats,
-  useProject,
+  useBase,
   useSelectedCellKeyupListener,
   watch,
 } from '#imports'
@@ -23,10 +23,9 @@ interface Props {
 }
 
 const { modelValue, isPk, isUpdatedFromCopyNPaste } = defineProps<Props>()
-
 const emit = defineEmits(['update:modelValue'])
 
-const { isMssql, isXcdbBase } = useProject()
+const { isMssql, isXcdbBase } = useBase()
 
 const { showNull } = useGlobal()
 
@@ -36,11 +35,15 @@ const active = inject(ActiveCellInj, ref(false))
 
 const editable = inject(EditModeInj, ref(false))
 
+const { t } = useI18n()
+
+const isEditColumn = inject(EditColumnInj, ref(false))
+
 const column = inject(ColumnInj)!
 
-let isDateInvalid = $ref(false)
+const isDateInvalid = ref(false)
 
-const dateTimeFormat = $computed(() => {
+const dateTimeFormat = computed(() => {
   const dateFormat = parseProp(column?.value?.meta)?.date_format ?? dateFormats[0]
   const timeFormat = parseProp(column?.value?.meta)?.time_format ?? timeFormats[0]
   return `${dateFormat} ${timeFormat}`
@@ -48,18 +51,18 @@ const dateTimeFormat = $computed(() => {
 
 let localModelValue = modelValue ? dayjs(modelValue).utc().local() : undefined
 
-let localState = $computed({
+const localState = computed({
   get() {
     if (!modelValue) {
       return undefined
     }
 
     if (!dayjs(modelValue).isValid()) {
-      isDateInvalid = true
+      isDateInvalid.value = true
       return undefined
     }
 
-    const isXcDB = isXcdbBase(column.value.base_id)
+    const isXcDB = isXcdbBase(column.value.source_id)
 
     // cater copy and paste
     // when copying a datetime cell, the copied value would be local time
@@ -75,7 +78,7 @@ let localState = $computed({
       return /^\d+$/.test(modelValue) ? dayjs(+modelValue) : dayjs(modelValue)
     }
 
-    if (isMssql(column.value.base_id)) {
+    if (isMssql(column.value.source_id)) {
       // e.g. 2023-04-29T11:41:53.000Z
       return dayjs(modelValue)
     }
@@ -116,6 +119,12 @@ let localState = $computed({
 
 const open = ref(false)
 
+const isOpen = computed(() => {
+  if (readOnly.value) return false
+
+  return readOnly.value || (localState.value && isPk) ? false : open.value && (active.value || editable.value)
+})
+
 const randomClass = `picker_${Math.floor(Math.random() * 99999)}`
 watch(
   open,
@@ -129,7 +138,17 @@ watch(
   { flush: 'post' },
 )
 
-const placeholder = computed(() => (modelValue === null && showNull.value ? 'NULL' : isDateInvalid ? 'Invalid date' : ''))
+const placeholder = computed(() => {
+  if (isEditColumn.value && (modelValue === '' || modelValue === null)) {
+    return t('labels.optional')
+  } else if (modelValue === null && showNull.value) {
+    return t('general.null')
+  } else if (isDateInvalid.value) {
+    return t('msg.invalidDate')
+  } else {
+    return ''
+  }
+})
 
 useSelectedCellKeyupListener(active, (e: KeyboardEvent) => {
   switch (e.key) {
@@ -158,7 +177,7 @@ useSelectedCellKeyupListener(active, (e: KeyboardEvent) => {
       }
       break
     case 'ArrowLeft':
-      if (!localState) {
+      if (!localState.value) {
         ;(document.querySelector('.nc-picker-datetime.active .ant-picker-header-prev-btn') as HTMLButtonElement)?.click()
       } else {
         const prevEl = document.querySelector('.nc-picker-datetime.active .ant-picker-cell-selected')
@@ -181,7 +200,7 @@ useSelectedCellKeyupListener(active, (e: KeyboardEvent) => {
       }
       break
     case 'ArrowRight':
-      if (!localState) {
+      if (!localState.value) {
         ;(document.querySelector('.nc-picker-datetime.active .ant-picker-header-next-btn') as HTMLButtonElement)?.click()
       } else {
         const nextEl = document.querySelector('.nc-picker-datetime.active .ant-picker-cell-selected')
@@ -204,15 +223,15 @@ useSelectedCellKeyupListener(active, (e: KeyboardEvent) => {
       }
       break
     case 'ArrowUp':
-      if (!localState)
+      if (!localState.value)
         (document.querySelector('.nc-picker-datetime.active .ant-picker-header-super-prev-btn') as HTMLButtonElement)?.click()
       break
     case 'ArrowDown':
-      if (!localState)
+      if (!localState.value)
         (document.querySelector('.nc-picker-datetime.active .ant-picker-header-super-next-btn') as HTMLButtonElement)?.click()
       break
     case ';':
-      localState = dayjs(new Date())
+      localState.value = dayjs(new Date())
       break
   }
 })
@@ -234,22 +253,26 @@ const clickHandler = () => {
   }
   cellClickHandler()
 }
+
+const isColDisabled = computed(() => {
+  return isSystemColumn(column.value) || readOnly.value || (localState.value && isPk)
+})
 </script>
 
 <template>
   <a-date-picker
     v-model:value="localState"
+    :disabled="isColDisabled"
     :show-time="true"
     :bordered="false"
-    class="!w-full !px-0 !border-none"
+    class="!w-full !px-0 !py-1 !border-none"
     :class="{ 'nc-null': modelValue === null && showNull }"
     :format="dateTimeFormat"
     :placeholder="placeholder"
     :allow-clear="!readOnly && !localState && !isPk"
     :input-read-only="true"
-    :dropdown-class-name="`${randomClass} nc-picker-datetime ${open ? 'active' : ''}`"
-    :open="readOnly || (localState && isPk) ? false : open && (active || editable)"
-    :disabled="readOnly || (localState && isPk)"
+    :dropdown-class-name="`${randomClass} nc-picker-datetime children:border-1 children:border-gray-200 ${open ? 'active' : ''}`"
+    :open="isOpen"
     @click="clickHandler"
     @ok="open = !open"
   >

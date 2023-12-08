@@ -6,7 +6,6 @@ import {
   CellValueInj,
   ColumnInj,
   IsFormInj,
-  IsLockedInj,
   IsUnderLookupInj,
   ReadonlyInj,
   ReloadRowDataHookInj,
@@ -16,9 +15,9 @@ import {
   inject,
   ref,
   useProvideLTARStore,
+  useRoles,
   useSelectedCellKeyupListener,
   useSmartsheetRowStoreOrThrow,
-  useUIPermission,
 } from '#imports'
 
 const column = inject(ColumnInj)!
@@ -35,11 +34,9 @@ const readOnly = inject(ReadonlyInj, ref(false))
 
 const isForm = inject(IsFormInj, ref(false))
 
-const isLocked = inject(IsLockedInj, ref(false))
-
 const isUnderLookup = inject(IsUnderLookupInj, ref(false))
 
-const { isUIAllowed } = useUIPermission()
+const { isUIAllowed } = useRoles()
 
 const listItemsDlg = ref(false)
 
@@ -103,7 +100,7 @@ const belongsToColumn = computed(
     </div>
 
     <div
-      v-if="!readOnly && !isLocked && (isUIAllowed('xcDatatableEditable') || isForm) && !isUnderLookup"
+      v-if="!readOnly && (isUIAllowed('dataEdit') || isForm) && !isUnderLookup"
       class="flex justify-end gap-1 min-h-[30px] items-center"
     >
       <GeneralIcon
@@ -113,7 +110,12 @@ const belongsToColumn = computed(
       />
     </div>
 
-    <LazyVirtualCellComponentsListItems v-model="listItemsDlg" :column="belongsToColumn" @attach-record="listItemsDlg = true" />
+    <LazyVirtualCellComponentsListItems
+      v-if="listItemsDlg"
+      v-model="listItemsDlg"
+      :column="belongsToColumn"
+      @attach-record="listItemsDlg = true"
+    />
   </div>
 </template>
 

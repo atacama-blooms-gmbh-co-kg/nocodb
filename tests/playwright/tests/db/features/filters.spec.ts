@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { DashboardPage } from '../../../pages/Dashboard';
-import setup from '../../../setup';
+import setup, { unsetup } from '../../../setup';
 import { ToolbarPage } from '../../../pages/Dashboard/common/Toolbar';
 import { UITypes } from 'nocodb-sdk';
 import { Api } from 'nocodb-sdk';
 import { rowMixedValue } from '../../../setup/xcdb-records';
 import dayjs from 'dayjs';
 import { createDemoTable } from '../../../setup/demoTable';
-import { isPg } from '../../../setup/db';
+import { enableQuickRun } from '../../../setup/db';
 
 let dashboard: DashboardPage, toolbar: ToolbarPage;
 let context: any;
@@ -99,6 +99,7 @@ async function verifyFilter(param: {
     locallySaved: false,
     dataType: param?.dataType,
     openModal: true,
+    skipWaitingResponse: true,
   });
 
   // verify filtered rows
@@ -111,6 +112,7 @@ async function verifyFilter(param: {
 //
 
 test.describe('Filter Tests: Numerical', () => {
+  if (enableQuickRun()) test.skip();
   async function numBasedFilterTest(dataType, eqString, isLikeString) {
     await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'numberBased' });
@@ -219,7 +221,7 @@ test.describe('Filter Tests: Numerical', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
 
     api = new Api({
@@ -230,8 +232,12 @@ test.describe('Filter Tests: Numerical', () => {
     });
 
     const table = await createDemoTable({ context, type: 'numberBased', recordCnt: 400 });
-    records = await api.dbTableRow.list('noco', context.project.id, table.id, { limit: 400 });
+    records = await api.dbTableRow.list('noco', context.base.id, table.id, { limit: 400 });
     await page.reload();
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Filter: Number', async () => {
@@ -254,7 +260,7 @@ test.describe('Filter Tests: Numerical', () => {
     await numBasedFilterTest('Rating', '3', '2');
   });
 
-  test.skip('Filter: Duration', async () => {
+  test('Filter: Duration', async () => {
     await numBasedFilterTest('Duration', '00:01', '01:03');
   });
 
@@ -295,6 +301,7 @@ test.describe('Filter Tests: Numerical', () => {
 //
 
 test.describe('Filter Tests: Text based', () => {
+  if (enableQuickRun()) test.skip();
   async function textBasedFilterTest(dataType, eqString, isLikeString) {
     await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'textBased' });
@@ -370,7 +377,7 @@ test.describe('Filter Tests: Text based', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
 
     api = new Api({
@@ -381,8 +388,12 @@ test.describe('Filter Tests: Text based', () => {
     });
 
     const table = await createDemoTable({ context, type: 'textBased', recordCnt: 400 });
-    records = await api.dbTableRow.list('noco', context.project.id, table.id, { limit: 400 });
+    records = await api.dbTableRow.list('noco', context.base.id, table.id, { limit: 400 });
     await page.reload();
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Filter: Single Line Text', async () => {
@@ -410,6 +421,7 @@ test.describe('Filter Tests: Text based', () => {
 //
 
 test.describe('Filter Tests: Select based', () => {
+  if (enableQuickRun()) test.skip();
   async function selectBasedFilterTest(dataType, is, anyof, allof) {
     await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'selectBased' });
@@ -490,7 +502,7 @@ test.describe('Filter Tests: Select based', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
 
     api = new Api({
@@ -501,9 +513,13 @@ test.describe('Filter Tests: Select based', () => {
     });
 
     const table = await createDemoTable({ context, type: 'selectBased', recordCnt: 400 });
-    records = await api.dbTableRow.list('noco', context.project.id, table.id, { limit: 400 });
+    records = await api.dbTableRow.list('noco', context.base.id, table.id, { limit: 400 });
 
     await page.reload();
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Filter: Single Select', async () => {
@@ -524,6 +540,7 @@ function getUTCEpochTime(date) {
 }
 
 test.describe('Filter Tests: Date based', () => {
+  if (enableQuickRun()) test.skip();
   const today = getUTCEpochTime(new Date());
   const tomorrow = getUTCEpochTime(new Date(new Date().setDate(new Date().getDate() + 1)));
   const yesterday = getUTCEpochTime(new Date(new Date().setDate(new Date().getDate() - 1)));
@@ -798,7 +815,7 @@ test.describe('Filter Tests: Date based', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
 
     api = new Api({
@@ -809,9 +826,13 @@ test.describe('Filter Tests: Date based', () => {
     });
 
     const table = await createDemoTable({ context, type: 'dateTimeBased', recordCnt: 800 });
-    records = await api.dbTableRow.list('noco', context.project.id, table.id, { limit: 800 });
+    records = await api.dbTableRow.list('noco', context.base.id, table.id, { limit: 800 });
 
     await page.reload();
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Date : filters-1', async () => {
@@ -827,6 +848,7 @@ test.describe('Filter Tests: Date based', () => {
 //
 
 test.describe('Filter Tests: AddOn', () => {
+  if (enableQuickRun()) test.skip();
   async function addOnFilterTest(dataType) {
     await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'addOnTypes', networkResponse: false });
@@ -840,14 +862,14 @@ test.describe('Filter Tests: AddOn', () => {
         op: 'is checked',
         value: null,
         rowCount: records.list.filter(r => {
-          return r[dataType] === (context.dbType === 'pg' ? true : 1);
+          return r[dataType];
         }).length,
       },
       {
         op: 'is not checked',
         value: null,
         rowCount: records.list.filter(r => {
-          return r[dataType] !== (context.dbType === 'pg' ? true : 1);
+          return r[dataType];
         }).length,
       },
     ];
@@ -866,7 +888,7 @@ test.describe('Filter Tests: AddOn', () => {
   }
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
 
     api = new Api({
@@ -895,8 +917,8 @@ test.describe('Filter Tests: AddOn', () => {
     ];
 
     try {
-      const project = await api.project.read(context.project.id);
-      const table = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+      const base = await api.base.read(context.base.id);
+      const table = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
         table_name: 'addOnTypes',
         title: 'addOnTypes',
         columns: columns,
@@ -911,12 +933,16 @@ test.describe('Filter Tests: AddOn', () => {
         rowAttributes.push(row);
       }
 
-      await api.dbTableRow.bulkCreate('noco', context.project.id, table.id, rowAttributes);
-      records = await api.dbTableRow.list('noco', context.project.id, table.id, { limit: 400 });
+      await api.dbTableRow.bulkCreate('noco', context.base.id, table.id, rowAttributes);
+      records = await api.dbTableRow.list('noco', context.base.id, table.id, { limit: 400 });
     } catch (e) {
       console.error(e);
     }
     await page.reload();
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Filter: Checkbox', async () => {
@@ -928,6 +954,7 @@ test.describe('Filter Tests: AddOn', () => {
 //
 
 test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
+  if (enableQuickRun()) test.skip();
   async function linkToAnotherRecordFilterTest() {
     await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'Country', networkResponse: false });
@@ -937,23 +964,23 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
 
     // add filter for CityList column
     const filterList = [
-      { op: 'is', value: 'Kabul', rowCount: 1 },
-      { op: 'is not', value: 'Kabul', rowCount: 108 },
-      { op: 'is like', value: 'bad', rowCount: 2 },
-      { op: 'is not like', value: 'bad', rowCount: 107 },
-      { op: 'is blank', value: null, rowCount: 0 },
-      { op: 'is not blank', value: null, rowCount: 109 },
+      { op: '=', value: '5', rowCount: 5 },
+      { op: '!=', value: '5', rowCount: 104 },
+      { op: '>', value: '5', rowCount: 25 },
+      { op: '<', value: '5', rowCount: 79 },
+      { op: '>=', value: '5', rowCount: 30 },
+      { op: '<=', value: '5', rowCount: 84 },
     ];
 
     await toolbar.clickFilter();
     await toolbar.filter.clickAddFilter();
     for (let i = 0; i < filterList.length; i++) {
       await verifyFilter({
-        column: 'City List',
+        column: 'Cities',
         opType: filterList[i].op,
         value: filterList[i].value,
         result: { rowCount: filterList[i].rowCount },
-        dataType: 'LinkToAnotherRecord',
+        dataType: 'Links',
       });
     }
   }
@@ -965,8 +992,8 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
     await dashboard.grid.column.create({
       title: 'Lookup',
       type: 'Lookup',
-      childTable: 'Address List',
-      childColumn: 'PostalCode',
+      childTable: 'Country',
+      childColumn: 'Country',
     });
 
     // Enable NULL & EMPTY filters
@@ -975,12 +1002,12 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
 
     // add filter for CityList column
     const filterList = [
-      { op: 'is equal', value: '4166', rowCount: 1 },
-      { op: 'is not equal', value: '4166', rowCount: 599 },
-      { op: 'is like', value: '41', rowCount: 19 },
-      { op: 'is not like', value: '41', rowCount: 581 },
-      { op: 'is blank', value: null, rowCount: 1 },
-      { op: 'is not blank', value: null, rowCount: 599 },
+      { op: 'is equal', value: 'Spain', rowCount: 5 },
+      { op: 'is not equal', value: 'Spain', rowCount: 595 },
+      { op: 'is like', value: 'ca', rowCount: 28 },
+      { op: 'is not like', value: 'ca', rowCount: 572 },
+      { op: 'is blank', value: null, rowCount: 0 },
+      { op: 'is not blank', value: null, rowCount: 600 },
     ];
 
     await toolbar.clickFilter();
@@ -1003,7 +1030,7 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
     await dashboard.grid.column.create({
       title: 'Rollup',
       type: 'Rollup',
-      childTable: 'Address List',
+      childTable: 'Addresses',
       childColumn: 'PostalCode',
       rollupType: 'Sum',
     });
@@ -1018,6 +1045,8 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
       { op: 'is not equal', value: '4166', rowCount: 599 },
       { op: 'is like', value: '41', rowCount: 19 },
       { op: 'is not like', value: '41', rowCount: 581 },
+      { op: 'is empty', value: '41', rowCount: 581 },
+      { op: 'is not empty', value: '41', rowCount: 581 },
       { op: 'is blank', value: null, rowCount: 2 },
       { op: 'is not blank', value: null, rowCount: 598 },
     ];
@@ -1026,18 +1055,20 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
     await toolbar.filter.clickAddFilter();
     for (let i = 0; i < filterList.length; i++) {
       await verifyFilter({
-        column: 'Lookup',
+        column: 'Rollup',
         opType: filterList[i].op,
         value: filterList[i].value,
         result: { rowCount: filterList[i].rowCount },
-        dataType: 'Lookup',
+        dataType: 'Rollup',
       });
     }
   }
 
   test.beforeEach(async ({ page }) => {
+    // todo: confirm with @dstala
+    // context = await setup({ page, isEmptyProject: true });
     context = await setup({ page, isEmptyProject: false });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
 
     api = new Api({
@@ -1046,6 +1077,10 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
         'xc-auth': context.token,
       },
     });
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Filter: LTAR columns', async () => {
@@ -1065,24 +1100,31 @@ test.describe('Filter Tests: Link to another record, Lookup, Rollup', () => {
 //
 
 test.describe('Filter Tests: Toggle button', () => {
+  if (enableQuickRun()) test.skip();
   /**
    *  Steps
    *
    * 1. Open table
    * 2. Verify filter options : should not include NULL & EMPTY options
-   * 3. Enable `Show NULL & EMPTY in Filter` in Project Settings
+   * 3. Enable `Show NULL & EMPTY in Filter` in Base Settings
    * 4. Verify filter options : should include NULL & EMPTY options
    * 5. Add NULL & EMPTY filters
-   * 6. Disable `Show NULL & EMPTY in Filter` in Project Settings : should not be allowed
+   * 6. Disable `Show NULL & EMPTY in Filter` in Base Settings : should not be allowed
    * 7. Remove the NULL & EMPTY filters
-   * 8. Disable `Show NULL & EMPTY in Filter` in Project Settings again : should be allowed
+   * 8. Disable `Show NULL & EMPTY in Filter` in Base Settings again : should be allowed
    *
    */
 
   test.beforeEach(async ({ page }) => {
+    // todo: confirm with @dstala
+    // context = await setup({ page, isEmptyProject: true });
     context = await setup({ page, isEmptyProject: false });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Filter: Toggle NULL & EMPTY button', async () => {
@@ -1142,24 +1184,29 @@ test.describe('Filter Tests: Toggle button', () => {
 });
 
 test.describe('Filter Tests: Filter groups', () => {
+  if (enableQuickRun()) test.skip();
   /**
    *  Steps
    *
    * 1. Open table
    * 2. Verify filter options : should not include NULL & EMPTY options
-   * 3. Enable `Show NULL & EMPTY in Filter` in Project Settings
+   * 3. Enable `Show NULL & EMPTY in Filter` in Base Settings
    * 4. Verify filter options : should include NULL & EMPTY options
    * 5. Add NULL & EMPTY filters
-   * 6. Disable `Show NULL & EMPTY in Filter` in Project Settings : should not be allowed
+   * 6. Disable `Show NULL & EMPTY in Filter` in Base Settings : should not be allowed
    * 7. Remove the NULL & EMPTY filters
-   * 8. Disable `Show NULL & EMPTY in Filter` in Project Settings again : should be allowed
+   * 8. Disable `Show NULL & EMPTY in Filter` in Base Settings again : should be allowed
    *
    */
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: false });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Filter: Empty filters', async () => {

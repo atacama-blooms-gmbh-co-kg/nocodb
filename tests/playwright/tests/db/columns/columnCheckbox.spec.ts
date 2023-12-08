@@ -1,6 +1,6 @@
 import { test } from '@playwright/test';
 import { DashboardPage } from '../../../pages/Dashboard';
-import setup from '../../../setup';
+import setup, { unsetup } from '../../../setup';
 import { ToolbarPage } from '../../../pages/Dashboard/common/Toolbar';
 import { UITypes } from 'nocodb-sdk';
 import { Api } from 'nocodb-sdk';
@@ -41,7 +41,7 @@ test.describe('Checkbox - cell, filter, sort', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
 
     api = new Api({
@@ -65,8 +65,8 @@ test.describe('Checkbox - cell, filter, sort', () => {
     ];
 
     try {
-      const project = await api.project.read(context.project.id);
-      const table = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+      const base = await api.base.read(context.base.id);
+      const table = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
         table_name: 'Sheet-1',
         title: 'Sheet-1',
         columns: columns,
@@ -81,13 +81,17 @@ test.describe('Checkbox - cell, filter, sort', () => {
         rowAttributes.push(row);
       }
 
-      await api.dbTableRow.bulkCreate('noco', context.project.id, table.id, rowAttributes);
+      await api.dbTableRow.bulkCreate('noco', context.base.id, table.id, rowAttributes);
     } catch (e) {
       console.error(e);
     }
 
     // page reload
     await page.reload();
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Checkbox', async () => {
@@ -139,7 +143,14 @@ test.describe('Checkbox - cell, filter, sort', () => {
       ascending: true,
       locallySaved: false,
     });
-    await validateRowArray(['1b', '1d', '1e', '1a', '1c', '1f']);
+
+    for (let i = 0; i < 3; i++) {
+      await dashboard.grid.cell.checkbox.verifyUnchecked({ index: i, columnHeader: 'checkbox' });
+    }
+    for (let i = 3; i < 6; i++) {
+      await dashboard.grid.cell.checkbox.verifyChecked({ index: i, columnHeader: 'checkbox' });
+    }
+
     await toolbar.sort.reset();
 
     // sort descending & validate
@@ -148,7 +159,14 @@ test.describe('Checkbox - cell, filter, sort', () => {
       ascending: false,
       locallySaved: false,
     });
-    await validateRowArray(['1a', '1c', '1f', '1b', '1d', '1e']);
+
+    for (let i = 0; i < 3; i++) {
+      await dashboard.grid.cell.checkbox.verifyChecked({ index: i, columnHeader: 'checkbox' });
+    }
+    for (let i = 3; i < 6; i++) {
+      await dashboard.grid.cell.checkbox.verifyUnchecked({ index: i, columnHeader: 'checkbox' });
+    }
+
     await toolbar.sort.reset();
 
     // TBD: Add more tests

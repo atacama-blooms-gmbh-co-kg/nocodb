@@ -11,7 +11,107 @@ test.describe('Shared view', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: false });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
+  });
+
+  test('Grid Share with GroupBy', async ({ page }) => {
+    await dashboard.treeView.openTable({ title: 'Film' });
+    await dashboard.grid.toolbar.clickGroupBy();
+
+    await dashboard.grid.toolbar.groupBy.add({
+      title: 'Title',
+      ascending: false,
+      locallySaved: false,
+    });
+    await dashboard.grid.toolbar.clickGroupBy();
+    await dashboard.grid.toolbar.sort.add({
+      title: 'Title',
+      ascending: false,
+      locallySaved: false,
+    });
+
+    sharedLink = await dashboard.grid.topbar.getSharedViewUrl();
+    await page.goto(sharedLink);
+
+    // fix me! kludge@hub; page wasn't getting loaded from previous step
+    await page.reload();
+    const sharedPage = new DashboardPage(page, context.base);
+    await sharedPage.grid.groupPage.openGroup({ indexMap: [0] });
+
+    await sharedPage.grid.groupPage.validateFirstRow({
+      indexMap: [0],
+      rowIndex: 0,
+      columnHeader: 'Title',
+      value: 'ZORRO ARK',
+    });
+
+    // Goto dashboard and Create Filter and verify shared view
+    await dashboard.goto();
+    await page.reload();
+
+    await dashboard.treeView.openTable({ title: 'Film' });
+
+    await dashboard.grid.toolbar.clickFilter();
+    await dashboard.grid.toolbar.filter.add({
+      title: 'Length',
+      operation: '=',
+      value: '180',
+    });
+    await dashboard.grid.toolbar.clickFilter();
+
+    await page.goto(sharedLink);
+    await page.reload();
+
+    await sharedPage.grid.groupPage.openGroup({ indexMap: [0] });
+    await sharedPage.grid.groupPage.validateFirstRow({
+      indexMap: [0],
+      rowIndex: 0,
+      columnHeader: 'Title',
+      value: 'SOMETHING DUCK',
+    });
+
+    // Goto dashboard and Update Group, Remove Filter and verify shared view
+
+    await dashboard.goto();
+    await page.reload();
+
+    await dashboard.treeView.openTable({ title: 'Film' });
+    await dashboard.grid.toolbar.clickGroupBy();
+    await dashboard.grid.toolbar.groupBy.update({
+      index: 0,
+      title: 'Length',
+      ascending: false,
+    });
+
+    await dashboard.grid.toolbar.filter.reset();
+
+    await page.goto(sharedLink);
+    await page.reload();
+
+    await sharedPage.grid.groupPage.openGroup({ indexMap: [0] });
+    await sharedPage.grid.groupPage.validateFirstRow({
+      indexMap: [0],
+      rowIndex: 0,
+      columnHeader: 'Title',
+      value: 'WORST BANGER',
+    });
+
+    await dashboard.goto();
+    await page.reload();
+    // kludge: wait for 3 seconds to avoid flaky test
+    await page.waitForTimeout(5000);
+
+    await dashboard.treeView.openTable({ title: 'Film' });
+    await dashboard.grid.toolbar.clickGroupBy();
+    await dashboard.grid.toolbar.groupBy.remove({ index: 0 });
+    await dashboard.grid.toolbar.clickGroupBy();
+
+    await page.goto(sharedLink);
+    await page.reload();
+    // kludge: wait for 3 seconds to avoid flaky test
+    await page.waitForTimeout(5000);
+
+    await sharedPage.grid.cell.verify({ index: 0, columnHeader: 'Title', value: 'ZORRO ARK' });
   });
 
   test('Grid share ', async ({ page }) => {
@@ -32,7 +132,7 @@ test.describe('Shared view', () => {
 
     // hide column
     await dashboard.grid.toolbar.fields.toggle({ title: 'Address2' });
-    await dashboard.grid.toolbar.fields.toggle({ title: 'Store List' });
+    await dashboard.grid.toolbar.fields.toggle({ title: 'Stores' });
 
     // sort
     await dashboard.grid.toolbar.sort.add({
@@ -51,8 +151,7 @@ test.describe('Shared view', () => {
     await dashboard.grid.toolbar.clickFilter();
 
     // share with password disabled, download enabled
-    await dashboard.grid.toolbar.clickShareView();
-    sharedLink = await dashboard.grid.toolbar.shareView.getShareLink();
+    sharedLink = await dashboard.grid.topbar.getSharedViewUrl();
 
     /**
      * 2. Access shared view: verify
@@ -63,7 +162,9 @@ test.describe('Shared view', () => {
      **/
 
     await page.goto(sharedLink);
-    const sharedPage = new DashboardPage(page, context.project);
+    // fix me! kludge@hub; page wasn't getting loaded from previous step
+    await page.reload();
+    const sharedPage = new DashboardPage(page, context.base);
 
     const expectedColumns = [
       { title: 'Address', isVisible: true },
@@ -73,9 +174,9 @@ test.describe('Shared view', () => {
       { title: 'PostalCode', isVisible: true },
       { title: 'Phone', isVisible: true },
       { title: 'LastUpdate', isVisible: true },
-      { title: 'Customer List', isVisible: true },
-      { title: 'Staff List', isVisible: true },
-      { title: 'Store List', isVisible: false },
+      { title: 'Customers', isVisible: true },
+      { title: 'Staffs', isVisible: true },
+      { title: 'Stores', isVisible: false },
       { title: 'City', isVisible: true },
     ];
     for (const column of expectedColumns) {
@@ -94,7 +195,11 @@ test.describe('Shared view', () => {
 
     // verify virtual records
     for (const record of expectedVirtualRecordsByDb) {
-      await sharedPage.grid.cell.verifyVirtualCell({ ...record, verifyChildList: true });
+      await sharedPage.grid.cell.verifyVirtualCell({
+        ...record,
+        options: { singular: 'Customer', plural: 'Customers' },
+        verifyChildList: true,
+      });
     }
 
     /**
@@ -105,7 +210,6 @@ test.describe('Shared view', () => {
      **/
 
     // create new sort & filter criteria in shared view
-    await sharedPage.grid.toolbar.sort.reset();
     await sharedPage.grid.toolbar.sort.add({
       title: 'Address',
       ascending: true,
@@ -143,7 +247,7 @@ test.describe('Shared view', () => {
 
     // verify download
     await sharedPage.grid.toolbar.clickDownload(
-      'Download as CSV',
+      'Download CSV',
       isSqlite(context) || isPg(context) ? 'expectedDataSqlite.txt' : 'expectedData.txt'
     );
   });
@@ -160,14 +264,7 @@ test.describe('Shared view', () => {
     await dashboard.closeTab({ title: 'Team & Auth' });
     await dashboard.treeView.openTable({ title: 'Country' });
 
-    // enable password & verify share link
-    await dashboard.grid.toolbar.clickShareView();
-    await dashboard.grid.toolbar.shareView.enablePassword('p@ssword');
-    // disable download
-    await dashboard.grid.toolbar.shareView.toggleDownload();
-
-    sharedLink = await dashboard.grid.toolbar.shareView.getShareLink();
-    await dashboard.grid.toolbar.shareView.close();
+    sharedLink = await dashboard.grid.topbar.getSharedViewUrl(false, 'p@ssword', true);
 
     // add new column, record after share view creation
     await dashboard.grid.column.create({
@@ -179,11 +276,13 @@ test.describe('Shared view', () => {
       value: 'New Country',
     });
 
-    await page.goto(sharedLink);
+    await dashboard.signOut();
 
-    // todo: Create shared view page
+    await page.goto(sharedLink);
+    await page.reload();
+
     // verify if password request modal exists
-    const sharedPage2 = new DashboardPage(page, context.project);
+    const sharedPage2 = new DashboardPage(page, context.base);
     await sharedPage2.rootPage.locator('input[placeholder="Enter password"]').fill('incorrect p@ssword');
     await sharedPage2.rootPage.click('button:has-text("Unlock")');
     await sharedPage2.verifyToast({ message: 'INVALID_SHARED_VIEW_PASSWORD' });
@@ -277,15 +376,15 @@ const sqliteExpectedRecords2 = [
 ];
 
 const expectedVirtualRecords = [
-  { index: 0, columnHeader: 'Customer List', count: 1, value: ['2'] },
-  { index: 1, columnHeader: 'Customer List', count: 1, value: ['2'] },
-  { index: 0, columnHeader: 'City', count: 1, value: ['Kanchrapara'] },
-  { index: 1, columnHeader: 'City', count: 1, value: ['Tafuna'] },
+  { index: 0, columnHeader: 'Customers', count: 1, type: 'hm' },
+  { index: 1, columnHeader: 'Customers', count: 1, type: 'hm' },
+  { index: 0, columnHeader: 'City', count: 1, type: 'bt', value: ['Kanchrapara'] },
+  { index: 1, columnHeader: 'City', count: 1, type: 'bt', value: ['Tafuna'] },
 ];
 
 const sqliteExpectedVirtualRecords = [
-  { index: 0, columnHeader: 'Customer List', count: 1, value: ['2'] },
-  { index: 1, columnHeader: 'Customer List', count: 1, value: ['1'] },
-  { index: 0, columnHeader: 'City', count: 1, value: ['Davao'] },
-  { index: 1, columnHeader: 'City', count: 1, value: ['Nagareyama'] },
+  { index: 0, columnHeader: 'Customers', count: 1, type: 'hm' },
+  { index: 1, columnHeader: 'Customers', count: 1, type: 'hm' },
+  { index: 0, columnHeader: 'City', count: 1, type: 'bt', value: ['Davao'] },
+  { index: 1, columnHeader: 'City', count: 1, type: 'bt', value: ['Nagareyama'] },
 ];

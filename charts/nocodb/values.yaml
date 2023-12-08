@@ -85,6 +85,10 @@ extraSecretEnvs:
   NC_AUTH_JWT_SECRET: secretString
 
 storage:
+  # If disabled, another persistent storage should be configured for attachments to work.
+  # We recommend setting NC_S3_BUCKET_NAME and other NC_S3* environment variables.
+  # Refer documentation for more details.
+  enabled: true
   size: 3Gi
   storageClassName: ""
 

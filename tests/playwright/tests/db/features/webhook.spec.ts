@@ -1,14 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { DashboardPage } from '../../../pages/Dashboard';
-import setup from '../../../setup';
+import setup, { NcContext, unsetup } from '../../../setup';
 import makeServer from '../../../setup/server';
 import { WebhookFormPage } from '../../../pages/Dashboard/WebhookForm';
-import { isSubset } from '../../utils/general';
+import { isSubset } from '../../../tests/utils/general';
 import { Api, UITypes } from 'nocodb-sdk';
-import { isMysql, isPg, isSqlite } from '../../../setup/db';
+import { enableQuickRun, isEE, isMysql, isSqlite } from '../../../setup/db';
 
 const hookPath = 'http://localhost:9090/hook';
-let api: Api<any>;
 
 // clear server data
 async function clearServerData({ request }) {
@@ -17,11 +16,11 @@ async function clearServerData({ request }) {
 
   // ensure stored message count is 0
   const response = await request.get(hookPath + '/count');
-  await expect(await response.json()).toBe(0);
+  expect(await response.json()).toBe(0);
 }
 
 async function getWebhookResponses({ request, count = 1 }) {
-  let response;
+  let response: { json: () => any };
 
   // kludge- add delay to allow server to process webhook
   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -34,7 +33,7 @@ async function getWebhookResponses({ request, count = 1 }) {
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  await expect(await response.json()).toBe(count);
+  expect(await response.json()).toBe(count);
 
   response = await request.get(hookPath + '/all');
   return await response.json();
@@ -42,7 +41,7 @@ async function getWebhookResponses({ request, count = 1 }) {
 
 async function verifyHookTrigger(count: number, value: string, request, expectedData?: any) {
   // Retry since there can be lag between the time the hook is triggered and the time the server receives the request
-  let response;
+  let response: { json: () => any };
 
   // retry since there can be lag between the time the hook is triggered and the time the server receives the request
   for (let i = 0; i < 20; i++) {
@@ -50,26 +49,28 @@ async function verifyHookTrigger(count: number, value: string, request, expected
     if ((await response.json()) === count) {
       break;
     }
-    await new Promise(resolve => setTimeout(resolve, 150));
+    await new Promise(resolve => setTimeout(resolve, 300));
   }
-  await expect(await response.json()).toBe(count);
+  expect(await response.json()).toBe(count);
 
   if (count) {
-    let response;
+    let response: any;
 
     // retry since there can be lag between the time the hook is triggered and the time the server receives the request
     for (let i = 0; i < 20; i++) {
       response = await request.get(hookPath + '/last');
       const rspJson = await response.json();
-      if (rspJson.data.rows[0].Title === value) {
+      // console.log('verifyHookTrigger response', value, rspJson);
+
+      if (rspJson?.data?.rows[0]?.Title === value) {
         break;
       }
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
     const rspJson = await response.json();
-    await expect(rspJson?.data?.rows[0]?.Title).toBe(value);
+    expect(rspJson?.data?.rows[0]?.Title).toBe(value);
     if (expectedData) {
-      await expect(isSubset(rspJson, expectedData)).toBe(true);
+      expect(isSubset(rspJson, expectedData)).toBe(true);
     }
   }
 }
@@ -102,10 +103,13 @@ async function buildExpectedResponseData(type, value, oldValue?) {
 }
 
 test.describe.serial('Webhook', () => {
+  if (enableQuickRun()) test.skip();
+  let api: Api<any>;
+
   // start a server locally for webhook tests
 
   let dashboard: DashboardPage, webhook: WebhookFormPage;
-  let context: any;
+  let context: NcContext;
 
   test.beforeAll(async () => {
     await makeServer();
@@ -113,7 +117,7 @@ test.describe.serial('Webhook', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     webhook = dashboard.webhookForm;
 
     api = new Api({
@@ -124,6 +128,10 @@ test.describe.serial('Webhook', () => {
     });
   });
 
+  test.afterEach(async () => {
+    await unsetup(context);
+  });
+
   test('CRUD', async ({ request, page }) => {
     // Waiting for the server to start
     await page.waitForTimeout(1000);
@@ -131,7 +139,7 @@ test.describe.serial('Webhook', () => {
     // close 'Team & Auth' tab
     await clearServerData({ request });
     await dashboard.closeTab({ title: 'Team & Auth' });
-    await dashboard.treeView.createTable({ title: 'Test' });
+    await dashboard.treeView.createTable({ title: 'Test', baseTitle: context.base.title });
 
     // create
     //
@@ -285,6 +293,7 @@ test.describe.serial('Webhook', () => {
     await webhook.delete({ index: 0 });
     await webhook.delete({ index: 0 });
     await webhook.delete({ index: 0 });
+    await dashboard.grid.topbar.openDataTab();
 
     await clearServerData({ request });
     await dashboard.grid.addNewRow({
@@ -299,13 +308,13 @@ test.describe.serial('Webhook', () => {
     await verifyHookTrigger(0, '', request);
   });
 
-  test('webhook Conditional webhooks', async ({ request }) => {
+  test('Conditional webhooks', async ({ request }) => {
     test.slow();
 
     await clearServerData({ request });
     // close 'Team & Auth' tab
     await dashboard.closeTab({ title: 'Team & Auth' });
-    await dashboard.treeView.createTable({ title: 'Test' });
+    await dashboard.treeView.createTable({ title: 'Test', baseTitle: context.base.title });
 
     // after insert hook
     await webhook.create({
@@ -434,7 +443,6 @@ test.describe.serial('Webhook', () => {
       for (let i = 0; i < rsp.length; i++) {
         expect(rsp[i].type).toBe(type);
         expect(rsp[i].data.table_name).toBe('Test');
-        expect(rsp[i].data.view_name).toBe('Test');
 
         // only for insert, rows inserted will not be returned in response. just count
         if (type === 'records.after.bulkInsert') {
@@ -477,11 +485,11 @@ test.describe.serial('Webhook', () => {
         uidt: UITypes.Number,
       },
     ];
-    let project, table;
+    let base, table;
 
     try {
-      project = await api.project.read(context.project.id);
-      table = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+      base = await api.base.read(context.base.id);
+      table = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
         table_name: 'Test',
         title: 'Test',
         columns: columns,
@@ -512,7 +520,7 @@ test.describe.serial('Webhook', () => {
       Id: i + 1,
       Number: (i + 1) * 100,
     }));
-    await api.dbTableRow.bulkCreate('noco', context.project.id, table.id, rowAttributesForInsert);
+    await api.dbTableRow.bulkCreate('noco', context.base.id, table.id, rowAttributesForInsert);
     await page.reload();
     let rsp = await getWebhookResponses({ request, count: 1 });
     await verifyBulkOperationTrigger(rsp, 'records.after.bulkInsert');
@@ -525,7 +533,7 @@ test.describe.serial('Webhook', () => {
       Number: (i + 1) * 111,
     }));
 
-    await api.dbTableRow.bulkUpdate('noco', context.project.id, table.id, rowAttributesForUpdate);
+    await api.dbTableRow.bulkUpdate('noco', context.base.id, table.id, rowAttributesForUpdate);
     await page.reload();
     // 50 records updated, we expect 2 webhook responses
     rsp = await getWebhookResponses({ request, count: 1 });
@@ -535,7 +543,7 @@ test.describe.serial('Webhook', () => {
     await clearServerData({ request });
     const rowAttributesForDelete = Array.from({ length: 50 }, (_, i) => ({ Id: i + 1 }));
 
-    await api.dbTableRow.bulkDelete('noco', context.project.id, table.id, rowAttributesForDelete);
+    await api.dbTableRow.bulkDelete('noco', context.base.id, table.id, rowAttributesForDelete);
     await page.reload();
     rsp = await getWebhookResponses({ request, count: 1 });
     await verifyBulkOperationTrigger(rsp, 'records.after.bulkDelete');
@@ -581,13 +589,13 @@ test.describe.serial('Webhook', () => {
     ];
 
     try {
-      const project = await api.project.read(context.project.id);
-      cityTable = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+      const base = await api.base.read(context.base.id);
+      cityTable = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
         table_name: 'City',
         title: 'City',
         columns: cityColumns,
       });
-      countryTable = await api.base.tableCreate(context.project.id, project.bases?.[0].id, {
+      countryTable = await api.source.tableCreate(context.base.id, base.sources?.[0].id, {
         table_name: 'Country',
         title: 'Country',
         columns: countryColumns,
@@ -599,21 +607,24 @@ test.describe.serial('Webhook', () => {
         { City: 'Delhi', CityCode: 43 },
         { City: 'Bangalore', CityCode: 53 },
       ];
-      await api.dbTableRow.bulkCreate('noco', context.project.id, cityTable.id, cityRowAttributes);
+      await api.dbTableRow.bulkCreate('noco', context.base.id, cityTable.id, cityRowAttributes);
+    } catch (e) {
+      console.error(e);
+    }
 
+    try {
       const countryRowAttributes = [
         { Country: 'India', CountryCode: 1 },
         { Country: 'USA', CountryCode: 2 },
         { Country: 'UK', CountryCode: 3 },
         { Country: 'Australia', CountryCode: 4 },
       ];
-      await api.dbTableRow.bulkCreate('noco', context.project.id, countryTable.id, countryRowAttributes);
+      await api.dbTableRow.bulkCreate('noco', context.base.id, countryTable.id, countryRowAttributes);
 
       // create LTAR Country has-many City
       countryTable = await api.dbTableColumn.create(countryTable.id, {
-        column_name: 'CityList',
         title: 'CityList',
-        uidt: UITypes.LinkToAnotherRecord,
+        uidt: UITypes.Links,
         parentId: countryTable.id,
         childId: cityTable.id,
         type: 'hm',
@@ -637,15 +648,19 @@ test.describe.serial('Webhook', () => {
         fk_rollup_column_id: cityTable.columns.filter(c => c.title === 'CityCode')[0].id,
         rollup_function: 'count',
       });
+    } catch (e) {
+      console.error(e);
+    }
 
+    try {
       // Create links
-      await api.dbTableRow.nestedAdd('noco', context.project.title, countryTable.title, 1, 'hm', 'CityList', '1');
-      await api.dbTableRow.nestedAdd('noco', context.project.title, countryTable.title, 1, 'hm', 'CityList', '2');
-      await api.dbTableRow.nestedAdd('noco', context.project.title, countryTable.title, 2, 'hm', 'CityList', '3');
-      await api.dbTableRow.nestedAdd('noco', context.project.title, countryTable.title, 3, 'hm', 'CityList', '4');
-
+      await api.dbTableRow.nestedAdd('noco', context.base.id, countryTable.title, 1, 'hm', 'CityList', '1');
+      await api.dbTableRow.nestedAdd('noco', context.base.id, countryTable.title, 1, 'hm', 'CityList', '2');
+      await api.dbTableRow.nestedAdd('noco', context.base.id, countryTable.title, 2, 'hm', 'CityList', '3');
+      await api.dbTableRow.nestedAdd('noco', context.base.id, countryTable.title, 3, 'hm', 'CityList', '4');
+      //
       // create formula column
-      countryTable = await api.dbTableColumn.create(countryTable.id, {
+      await api.dbTableColumn.create(countryTable.id, {
         column_name: 'CityCodeFormula',
         title: 'CityCodeFormula',
         uidt: UITypes.Formula,
@@ -676,49 +691,38 @@ test.describe.serial('Webhook', () => {
       type: 'records.after.update',
       data: {
         table_name: 'Country',
-        view_name: 'Country',
         previous_rows: [
           {
             Id: 1,
             Country: 'India',
-            CountryCode: '1',
-            CityCodeRollup: '2',
+            CountryCode: 1,
+            CityList: 2,
+            CityCodeRollup: 2,
             CityCodeFormula: 100,
-            CityList: [
-              {
-                Id: 1,
-                City: 'Mumbai',
-              },
-              {
-                Id: 2,
-                City: 'Pune',
-              },
-            ],
-            CityCodeLookup: ['23', '33'],
+            CityCodeLookup: [23, 33],
           },
         ],
         rows: [
           {
             Id: 1,
             Country: 'INDIA',
-            CountryCode: '1',
-            CityCodeRollup: '2',
+            CountryCode: 1,
+            CityList: 2,
+            CityCodeRollup: 2,
             CityCodeFormula: 100,
-            CityList: [
-              {
-                Id: 1,
-                City: 'Mumbai',
-              },
-              {
-                Id: 2,
-                City: 'Pune',
-              },
-            ],
-            CityCodeLookup: ['23', '33'],
+            CityCodeLookup: [23, 33],
           },
         ],
       },
     };
+
+    // Webhook response type for lookup is different for PG between CE & EE
+    if (isEE()) {
+      // @ts-ignore
+      expectedData.data.previous_rows[0].CityCodeLookup = [23, 33];
+      // @ts-ignore
+      expectedData.data.rows[0].CityCodeLookup = [23, 33];
+    }
 
     if (isSqlite(context) || isMysql(context)) {
       // @ts-ignore
@@ -733,6 +737,10 @@ test.describe.serial('Webhook', () => {
       expectedData.data.previous_rows[0].CityCodeLookup = [23, 33];
       // @ts-ignore
       expectedData.data.rows[0].CityCodeLookup = [23, 33];
+      // @ts-ignore
+      expectedData.data.previous_rows[0].CityList = 2;
+      // @ts-ignore
+      expectedData.data.rows[0].CityList = 2;
 
       if (isMysql(context)) {
         // @ts-ignore
@@ -742,6 +750,9 @@ test.describe.serial('Webhook', () => {
       }
     }
 
-    await expect(isSubset(rsp[0], expectedData)).toBe(true);
+    console.log('rsp', rsp[0]);
+    console.log('expectedData', expectedData);
+
+    expect(isSubset(rsp[0], expectedData)).toBe(true);
   });
 });

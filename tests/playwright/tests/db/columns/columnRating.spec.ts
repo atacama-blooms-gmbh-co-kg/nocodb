@@ -1,6 +1,6 @@
 import { test } from '@playwright/test';
 import { DashboardPage } from '../../../pages/Dashboard';
-import setup from '../../../setup';
+import setup, { unsetup } from '../../../setup';
 import { ToolbarPage } from '../../../pages/Dashboard/common/Toolbar';
 
 test.describe('Rating - cell, filter, sort', () => {
@@ -38,15 +38,19 @@ test.describe('Rating - cell, filter, sort', () => {
 
   test.beforeEach(async ({ page }) => {
     context = await setup({ page, isEmptyProject: true });
-    dashboard = new DashboardPage(page, context.project);
+    dashboard = new DashboardPage(page, context.base);
     toolbar = dashboard.grid.toolbar;
+  });
+
+  test.afterEach(async () => {
+    await unsetup(context);
   });
 
   test('Rating', async () => {
     // close 'Team & Auth' tab
     await dashboard.closeTab({ title: 'Team & Auth' });
 
-    await dashboard.treeView.createTable({ title: 'Sheet1' });
+    await dashboard.treeView.createTable({ title: 'Sheet1', baseTitle: context.base.title });
 
     await dashboard.grid.addNewRow({ index: 0, value: '1a' });
     await dashboard.grid.addNewRow({ index: 1, value: '1b' });

@@ -86,7 +86,7 @@ import { UITypes, ViewTypes } from 'nocodb-sdk';
 import { expect } from 'chai';
 import request from 'supertest';
 import init from '../../init';
-import { createProject, createSakilaProject } from '../../factory/project';
+import { createProject, createSakilaProject } from '../../factory/base';
 import { createTable, getTable } from '../../factory/table';
 import { createBulkRows, listRow, rowMixedValue } from '../../factory/row';
 import {
@@ -99,18 +99,18 @@ import { createView, updateView } from '../../factory/view';
 
 import { isPg } from '../../init/db';
 import type { ColumnType } from 'nocodb-sdk';
-import type Project from '../../../../src/models/Project';
+import type Base from '~/models/Base';
 import type Model from '../../../../src/models/Model';
 
 const debugMode = false;
 
 let context;
-let project: Project;
+let base: Base;
 let table: Model;
 let columns: any[];
 let insertedRecords: any[] = [];
 
-let sakilaProject: Project;
+let sakilaProject: Base;
 let customerTable: Model;
 let customerColumns;
 let actorTable: Model;
@@ -119,6 +119,8 @@ let countryTable: Model;
 let countryColumns;
 let cityTable: Model;
 let cityColumns;
+
+const unauthorizedResponse = process.env.EE !== 'true' ? 404 : 403;
 
 // Optimisation scope for time reduction
 // 1. BeforeEach can be changed to BeforeAll for List and Read APIs
@@ -137,7 +139,7 @@ const verifyColumnsInRsp = (row, columns: ColumnType[]) => {
 };
 
 async function ncAxiosGet({
-  url = `/api/v1/tables/${table.id}/rows`,
+  url = `/api/v2/tables/${table.id}/records`,
   query = {},
   status = 200,
 }: { url?: string; query?: any; status?: number } = {}) {
@@ -149,8 +151,9 @@ async function ncAxiosGet({
   expect(response.status).to.equal(status);
   return response;
 }
+
 async function ncAxiosPost({
-  url = `/api/v1/tables/${table.id}/rows`,
+  url = `/api/v2/tables/${table.id}/records`,
   body = {},
   status = 200,
 }: { url?: string; body?: any; status?: number } = {}) {
@@ -161,8 +164,9 @@ async function ncAxiosPost({
   expect(response.status).to.equal(status);
   return response;
 }
+
 async function ncAxiosPatch({
-  url = `/api/v1/tables/${table.id}/rows`,
+  url = `/api/v2/tables/${table.id}/records`,
   body = {},
   status = 200,
 }: { url?: string; body?: any; status?: number } = {}) {
@@ -173,8 +177,9 @@ async function ncAxiosPatch({
   expect(response.status).to.equal(status);
   return response;
 }
+
 async function ncAxiosDelete({
-  url = `/api/v1/tables/${table.id}/rows`,
+  url = `/api/v2/tables/${table.id}/records`,
   body = {},
   status = 200,
 }: { url?: string; body?: any; status?: number } = {}) {
@@ -195,7 +200,7 @@ async function ncAxiosLinkGet({
   msg,
 }: { urlParams?: any; query?: any; status?: number; msg?: string } = {}) {
   const urlParams = { tableId, linkId, rowId };
-  const url = `/api/v1/tables/${urlParams.tableId}/links/${urlParams.linkId}/rows/${urlParams.rowId}`;
+  const url = `/api/v2/tables/${urlParams.tableId}/links/${urlParams.linkId}/records/${urlParams.rowId}`;
   const response = await request(context.app)
     .get(url)
     .set('xc-auth', context.token)
@@ -213,6 +218,7 @@ async function ncAxiosLinkGet({
 
   return response;
 }
+
 async function ncAxiosLinkAdd({
   urlParams: { tableId, linkId, rowId },
   body = {},
@@ -220,7 +226,7 @@ async function ncAxiosLinkAdd({
   msg,
 }: { urlParams?: any; body?: any; status?: number; msg?: string } = {}) {
   const urlParams = { tableId, linkId, rowId };
-  const url = `/api/v1/tables/${urlParams.tableId}/links/${urlParams.linkId}/rows/${urlParams.rowId}`;
+  const url = `/api/v2/tables/${urlParams.tableId}/links/${urlParams.linkId}/records/${urlParams.rowId}`;
   const response = await request(context.app)
     .post(url)
     .set('xc-auth', context.token)
@@ -239,6 +245,7 @@ async function ncAxiosLinkAdd({
 
   return response;
 }
+
 async function ncAxiosLinkRemove({
   urlParams: { tableId, linkId, rowId },
   body = {},
@@ -246,7 +253,7 @@ async function ncAxiosLinkRemove({
   msg,
 }: { urlParams?: any; body?: any; status?: number; msg?: string } = {}) {
   const urlParams = { tableId, linkId, rowId };
-  const url = `/api/v1/tables/${urlParams.tableId}/links/${urlParams.linkId}/rows/${urlParams.rowId}`;
+  const url = `/api/v2/tables/${urlParams.tableId}/links/${urlParams.linkId}/records/${urlParams.rowId}`;
   const response = await request(context.app)
     .delete(url)
     .set('xc-auth', context.token)
@@ -271,76 +278,39 @@ function generalDb() {
     context = await init();
 
     sakilaProject = await createSakilaProject(context);
-    project = await createProject(context);
+    base = await createProject(context);
 
     customerTable = await getTable({
-      project: sakilaProject,
+      base: sakilaProject,
       name: 'customer',
     });
     customerColumns = await customerTable.getColumns();
 
     actorTable = await getTable({
-      project: sakilaProject,
+      base: sakilaProject,
       name: 'actor',
     });
     actorColumns = await actorTable.getColumns();
 
     countryTable = await getTable({
-      project: sakilaProject,
+      base: sakilaProject,
       name: 'country',
     });
     countryColumns = await countryTable.getColumns();
 
     cityTable = await getTable({
-      project: sakilaProject,
+      base: sakilaProject,
       name: 'city',
     });
     cityColumns = await cityTable.getColumns();
   });
 
   it('Nested List - Link to another record', async function () {
-    const expectedRecords = [
-      [
-        {
-          CityId: 251,
-          City: 'Kabul',
-        },
-      ],
-      [
-        {
-          CityId: 59,
-          City: 'Batna',
-        },
-        {
-          CityId: 63,
-          City: 'Bchar',
-        },
-        {
-          CityId: 483,
-          City: 'Skikda',
-        },
-      ],
-      [
-        {
-          CityId: 516,
-          City: 'Tafuna',
-        },
-      ],
-      [
-        {
-          CityId: 67,
-          City: 'Benguela',
-        },
-        {
-          CityId: 360,
-          City: 'Namibe',
-        },
-      ],
-    ];
+    const expectedRecords = [1, 3, 1, 2];
 
     // read first 4 records
     const records = await ncAxiosGet({
-      url: `/api/v1/tables/${countryTable.id}/rows`,
+      url: `/api/v2/tables/${countryTable.id}/records`,
       query: {
         limit: 4,
       },
@@ -348,13 +318,13 @@ function generalDb() {
     expect(records.body.list.length).to.equal(4);
 
     // extract LTAR column "City List"
-    const cityList = records.body.list.map((r) => r['City List']);
+    const cityList = records.body.list.map((r) => r['Cities']);
     expect(cityList).to.deep.equal(expectedRecords);
   });
 
   it('Nested List - Lookup', async function () {
     const lookupColumn = await createLookupColumn(context, {
-      project: sakilaProject,
+      base: sakilaProject,
       title: 'Lookup',
       table: countryTable,
       relatedTableName: cityTable.table_name,
@@ -370,7 +340,7 @@ function generalDb() {
 
     // read first 4 records
     const records = await ncAxiosGet({
-      url: `/api/v1/tables/${countryTable.id}/rows`,
+      url: `/api/v2/tables/${countryTable.id}/records`,
       query: {
         limit: 4,
       },
@@ -384,7 +354,7 @@ function generalDb() {
 
   it('Nested List - Rollup', async function () {
     const rollupColumn = await createRollupColumn(context, {
-      project: sakilaProject,
+      base: sakilaProject,
       title: 'Rollup',
       table: countryTable,
       relatedTableName: cityTable.table_name,
@@ -393,11 +363,10 @@ function generalDb() {
     });
 
     const expectedRecords = [1, 3, 1, 2];
-    const expectedRecordsPg = ['1', '3', '1', '2'];
 
     // read first 4 records
     const records = await ncAxiosGet({
-      url: `/api/v1/tables/${countryTable.id}/rows`,
+      url: `/api/v2/tables/${countryTable.id}/records`,
       query: {
         limit: 4,
       },
@@ -406,30 +375,22 @@ function generalDb() {
 
     // extract Lookup column
     const rollupData = records.body.list.map((record) => record.Rollup);
-    if (isPg(context)) {
-      expect(rollupData).to.deep.equal(expectedRecordsPg);
-    } else {
-      expect(rollupData).to.deep.equal(expectedRecords);
-    }
+
+    expect(rollupData).to.deep.equal(expectedRecords);
   });
 
   it('Nested Read - Link to another record', async function () {
     const records = await ncAxiosGet({
-      url: `/api/v1/tables/${countryTable.id}/rows/1`,
+      url: `/api/v2/tables/${countryTable.id}/records/1`,
     });
 
     // extract LTAR column "City List"
-    expect(records.body['City List']).to.deep.equal([
-      {
-        CityId: 251,
-        City: 'Kabul',
-      },
-    ]);
+    expect(+records.body['Cities']).to.equal(1);
   });
 
   it('Nested Read - Lookup', async function () {
     const lookupColumn = await createLookupColumn(context, {
-      project: sakilaProject,
+      base: sakilaProject,
       title: 'Lookup',
       table: countryTable,
       relatedTableName: cityTable.table_name,
@@ -437,14 +398,14 @@ function generalDb() {
     });
 
     const records = await ncAxiosGet({
-      url: `/api/v1/tables/${countryTable.id}/rows/1`,
+      url: `/api/v2/tables/${countryTable.id}/records/1`,
     });
     expect(records.body.Lookup).to.deep.equal(['Kabul']);
   });
 
   it('Nested Read - Rollup', async function () {
     const rollupColumn = await createRollupColumn(context, {
-      project: sakilaProject,
+      base: sakilaProject,
       title: 'Rollup',
       table: countryTable,
       relatedTableName: cityTable.table_name,
@@ -453,13 +414,10 @@ function generalDb() {
     });
 
     const records = await ncAxiosGet({
-      url: `/api/v1/tables/${countryTable.id}/rows/1`,
+      url: `/api/v2/tables/${countryTable.id}/records/1`,
     });
-    if (isPg(context)) {
-      expect(records.body.Rollup).to.equal('1');
-    } else {
-      expect(records.body.Rollup).to.equal(1);
-    }
+
+    expect(records.body.Rollup).to.equal(1);
   });
 }
 
@@ -467,8 +425,8 @@ function textBased() {
   // prepare data for test cases
   beforeEach(async function () {
     context = await init(false);
-    project = await createProject(context);
-    table = await createTable(context, project, {
+    base = await createProject(context);
+    table = await createTable(context, base, {
       table_name: 'textBased',
       title: 'TextBased',
       columns: customColumns('textBased'),
@@ -493,13 +451,13 @@ function textBased() {
     // insert records
     // creating bulk records using older set of APIs
     await createBulkRows(context, {
-      project,
+      base,
       table,
       values: rowAttributes,
     });
 
     // retrieve inserted records
-    insertedRecords = await listRow({ project, table });
+    insertedRecords = await listRow({ base, table });
 
     // verify length of unfiltered records to be 400
     expect(insertedRecords.length).to.equal(400);
@@ -834,8 +792,8 @@ function textBased() {
   it('List: invalid ID', async function () {
     // Invalid table ID
     await ncAxiosGet({
-      url: `/api/v1/tables/123456789/rows`,
-      status: 404,
+      url: `/api/v2/tables/123456789/records`,
+      status: unauthorizedResponse,
     });
 
     // Invalid view ID
@@ -907,16 +865,19 @@ function textBased() {
       query: {
         sort: 'abc',
       },
+      status: 422,
     });
     await ncAxiosGet({
       query: {
         where: 'abc',
       },
+      status: 422,
     });
     await ncAxiosGet({
       query: {
         fields: 'abc',
       },
+      status: 422,
     });
   });
 
@@ -961,8 +922,8 @@ function textBased() {
   it('Create: invalid ID', async function () {
     // Invalid table ID
     await ncAxiosPost({
-      url: `/api/v1/tables/123456789/rows`,
-      status: 404,
+      url: `/api/v2/tables/123456789/records`,
+      status: unauthorizedResponse,
     });
 
     // Invalid data - create should not specify ID
@@ -988,19 +949,19 @@ function textBased() {
 
   it('Read: all fields', async function () {
     const rsp = await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/100`,
+      url: `/api/v2/tables/${table.id}/records/100`,
     });
   });
 
   it('Read: invalid ID', async function () {
     // Invalid table ID
     await ncAxiosGet({
-      url: `/api/v1/tables/123456789/rows/100`,
-      status: 404,
+      url: `/api/v2/tables/123456789/records/100`,
+      status: unauthorizedResponse,
     });
     // Invalid row ID
     await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/1000`,
+      url: `/api/v2/tables/${table.id}/records/1000`,
       status: 404,
     });
   });
@@ -1026,7 +987,7 @@ function textBased() {
 
   it('Update: partial', async function () {
     const recordBeforeUpdate = await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/1`,
+      url: `/api/v2/tables/${table.id}/records/1`,
     });
 
     const rsp = await ncAxiosPatch({
@@ -1041,7 +1002,7 @@ function textBased() {
     expect(rsp.body).to.deep.equal([{ Id: 1 }]);
 
     const recordAfterUpdate = await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/1`,
+      url: `/api/v2/tables/${table.id}/records/1`,
     });
     expect(recordAfterUpdate.body).to.deep.equal({
       ...recordBeforeUpdate.body,
@@ -1073,9 +1034,9 @@ function textBased() {
   it('Update: invalid ID', async function () {
     // Invalid table ID
     await ncAxiosPatch({
-      url: `/api/v1/tables/123456789/rows`,
+      url: `/api/v2/tables/123456789/records`,
       body: { Id: 100, SingleLineText: 'some text' },
-      status: 404,
+      status: unauthorizedResponse,
     });
     // Invalid row ID
     await ncAxiosPatch({
@@ -1097,7 +1058,7 @@ function textBased() {
 
     // check that it's gone
     await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/1`,
+      url: `/api/v2/tables/${table.id}/records/1`,
       status: 404,
     });
   });
@@ -1108,11 +1069,11 @@ function textBased() {
 
     // check that it's gone
     await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/1`,
+      url: `/api/v2/tables/${table.id}/records/1`,
       status: 404,
     });
     await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/2`,
+      url: `/api/v2/tables/${table.id}/records/2`,
       status: 404,
     });
   });
@@ -1122,9 +1083,9 @@ function textBased() {
   it('Delete: invalid ID', async function () {
     // Invalid table ID
     await ncAxiosDelete({
-      url: `/api/v1/tables/123456789/rows`,
+      url: `/api/v2/tables/123456789/records`,
       body: { Id: 100 },
-      status: 404,
+      status: unauthorizedResponse,
     });
     // Invalid row ID
     await ncAxiosDelete({ body: { Id: '123456789' }, status: 422 });
@@ -1135,8 +1096,8 @@ function numberBased() {
   // prepare data for test cases
   beforeEach(async function () {
     context = await init();
-    project = await createProject(context);
-    table = await createTable(context, project, {
+    base = await createProject(context);
+    table = await createTable(context, base, {
       table_name: 'numberBased',
       title: 'numberBased',
       columns: customColumns('numberBased'),
@@ -1161,13 +1122,13 @@ function numberBased() {
 
     // insert records
     await createBulkRows(context, {
-      project,
+      base,
       table,
       values: rowAttributes,
     });
 
     // retrieve inserted records
-    insertedRecords = await listRow({ project, table });
+    insertedRecords = await listRow({ base, table });
 
     // verify length of unfiltered records to be 400
     expect(insertedRecords.length).to.equal(400);
@@ -1266,99 +1227,6 @@ function numberBased() {
     },
   ];
 
-  const recordsPg = [
-    {
-      Id: 1,
-      Number: '33',
-      Decimal: '33.3',
-      Currency: '33.3',
-      Percent: 33,
-      Duration: '10',
-      Rating: 0,
-    },
-    {
-      Id: 2,
-      Number: null,
-      Decimal: '456.34',
-      Currency: '456.34',
-      Percent: null,
-      Duration: '20',
-      Rating: 1,
-    },
-    {
-      Id: 3,
-      Number: '456',
-      Decimal: '333.3',
-      Currency: '333.3',
-      Percent: 456,
-      Duration: '30',
-      Rating: 2,
-    },
-    {
-      Id: 4,
-      Number: '333',
-      Decimal: null,
-      Currency: null,
-      Percent: 333,
-      Duration: '40',
-      Rating: 3,
-    },
-    {
-      Id: 5,
-      Number: '267',
-      Decimal: '267.5674',
-      Currency: '267.5674',
-      Percent: 267,
-      Duration: '50',
-      Rating: null,
-    },
-    {
-      Id: 6,
-      Number: '34',
-      Decimal: '34',
-      Currency: '34',
-      Percent: 34,
-      Duration: '60',
-      Rating: 0,
-    },
-    {
-      Id: 7,
-      Number: '8754',
-      Decimal: '8754',
-      Currency: '8754',
-      Percent: 8754,
-      Duration: null,
-      Rating: 4,
-    },
-    {
-      Id: 8,
-      Number: '3234',
-      Decimal: '3234.547',
-      Currency: '3234.547',
-      Percent: 3234,
-      Duration: '70',
-      Rating: 5,
-    },
-    {
-      Id: 9,
-      Number: '44',
-      Decimal: '44.2647',
-      Currency: '44.2647',
-      Percent: 44,
-      Duration: '80',
-      Rating: 0,
-    },
-    {
-      Id: 10,
-      Number: '33',
-      Decimal: '33.98',
-      Currency: '33.98',
-      Percent: 33,
-      Duration: '90',
-      Rating: 1,
-    },
-  ];
-
   it('Number based- List & CRUD', async function () {
     // list 10 records
     let rsp = await ncAxiosGet({
@@ -1374,11 +1242,7 @@ function numberBased() {
       isLastPage: false,
     };
     expect(rsp.body.pageInfo).to.deep.equal(pageInfo);
-    if (isPg(context)) {
-      expect(rsp.body.list).to.deep.equal(recordsPg);
-    } else {
-      expect(rsp.body.list).to.deep.equal(records);
-    }
+    expect(rsp.body.list).to.deep.equal(records);
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -1400,13 +1264,9 @@ function numberBased() {
 
     // read record with Id 401
     rsp = await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/401`,
+      url: `/api/v2/tables/${table.id}/records/401`,
     });
-    if (isPg(context)) {
-      expect(rsp.body).to.deep.equal({ ...recordsPg[0], Id: 401 });
-    } else {
-      expect(rsp.body).to.deep.equal({ ...records[0], Id: 401 });
-    }
+    expect(rsp.body).to.deep.equal({ ...records[0], Id: 401 });
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -1417,14 +1277,6 @@ function numberBased() {
       Currency: 55.5,
       Percent: 55,
       Duration: 55,
-      Rating: 5,
-    };
-    const updatedRecordPg = {
-      Number: '55',
-      Decimal: '55.5',
-      Currency: '55.5',
-      Percent: 55,
-      Duration: '55',
       Rating: 5,
     };
 
@@ -1446,25 +1298,6 @@ function numberBased() {
         ...updatedRecord,
       },
     ];
-    const updatedRecordsPg = [
-      {
-        Id: 401,
-        ...updatedRecordPg,
-      },
-      {
-        Id: 402,
-        ...updatedRecordPg,
-      },
-      {
-        Id: 403,
-        ...updatedRecordPg,
-      },
-      {
-        Id: 404,
-        ...updatedRecordPg,
-      },
-    ];
-
     rsp = await ncAxiosPatch({
       body: updatedRecords,
     });
@@ -1479,11 +1312,8 @@ function numberBased() {
         offset: 400,
       },
     });
-    if (isPg(context)) {
-      expect(rsp.body.list).to.deep.equal(updatedRecordsPg);
-    } else {
-      expect(rsp.body.list).to.deep.equal(updatedRecords);
-    }
+
+    expect(rsp.body.list).to.deep.equal(updatedRecords);
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -1501,8 +1331,8 @@ function selectBased() {
   // prepare data for test cases
   beforeEach(async function () {
     context = await init();
-    project = await createProject(context);
-    table = await createTable(context, project, {
+    base = await createProject(context);
+    table = await createTable(context, base, {
       table_name: 'selectBased',
       title: 'selectBased',
       columns: customColumns('selectBased'),
@@ -1523,13 +1353,13 @@ function selectBased() {
 
     // insert records
     await createBulkRows(context, {
-      project,
+      base,
       table,
       values: rowAttributes,
     });
 
     // retrieve inserted records
-    insertedRecords = await listRow({ project, table });
+    insertedRecords = await listRow({ base, table });
 
     // verify length of unfiltered records to be 400
     expect(insertedRecords.length).to.equal(400);
@@ -1625,7 +1455,7 @@ function selectBased() {
 
     // read record with Id 401
     rsp = await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/401`,
+      url: `/api/v2/tables/${table.id}/records/401`,
     });
     expect(rsp.body).to.deep.equal({ Id: 401, ...records[0] });
 
@@ -1686,8 +1516,8 @@ function dateBased() {
   // prepare data for test cases
   beforeEach(async function () {
     context = await init();
-    project = await createProject(context);
-    table = await createTable(context, project, {
+    base = await createProject(context);
+    table = await createTable(context, base, {
       table_name: 'dateBased',
       title: 'dateBased',
       columns: customColumns('dateBased'),
@@ -1709,13 +1539,13 @@ function dateBased() {
 
     // insert records
     await createBulkRows(context, {
-      project,
+      base,
       table,
       values: rowAttributes,
     });
 
     // retrieve inserted records
-    insertedRecords = await listRow({ project, table });
+    insertedRecords = await listRow({ base, table });
 
     // verify length of unfiltered records to be 800
     expect(insertedRecords.length).to.equal(800);
@@ -1764,7 +1594,7 @@ function dateBased() {
 
     // read record with Id 801
     rsp = await ncAxiosGet({
-      url: `/api/v1/tables/${table.id}/rows/801`,
+      url: `/api/v2/tables/${table.id}/records/801`,
     });
     expect(rsp.body).to.deep.equal({ Id: 801, ...records[0] });
 
@@ -1846,7 +1676,7 @@ function linkBased() {
   // prepare data for test cases
   beforeEach(async function () {
     context = await init();
-    project = await createProject(context);
+    base = await createProject(context);
 
     const columns = [
       {
@@ -1861,7 +1691,7 @@ function linkBased() {
       // Prepare City table
       columns[0].title = 'City';
       columns[0].column_name = 'City';
-      tblCity = await createTable(context, project, {
+      tblCity = await createTable(context, base, {
         title: 'City',
         table_name: 'City',
         columns: customColumns('custom', columns),
@@ -1870,17 +1700,17 @@ function linkBased() {
 
       // insert records
       await createBulkRows(context, {
-        project,
+        base,
         table: tblCity,
         values: cityRecords,
       });
 
-      insertedRecords = await listRow({ project, table: tblCity });
+      insertedRecords = await listRow({ base, table: tblCity });
 
       // Prepare Country table
       columns[0].title = 'Country';
       columns[0].column_name = 'Country';
-      tblCountry = await createTable(context, project, {
+      tblCountry = await createTable(context, base, {
         title: 'Country',
         table_name: 'Country',
         columns: customColumns('custom', columns),
@@ -1888,7 +1718,7 @@ function linkBased() {
       const countryRecords = await prepareRecords('Country', 100);
       // insert records
       await createBulkRows(context, {
-        project,
+        base,
         table: tblCountry,
         values: countryRecords,
       });
@@ -1896,14 +1726,14 @@ function linkBased() {
       // Prepare Actor table
       columns[0].title = 'Actor';
       columns[0].column_name = 'Actor';
-      tblActor = await createTable(context, project, {
+      tblActor = await createTable(context, base, {
         title: 'Actor',
         table_name: 'Actor',
         columns: customColumns('custom', columns),
       });
       const actorRecords = await prepareRecords('Actor', 100);
       await createBulkRows(context, {
-        project,
+        base,
         table: tblActor,
         values: actorRecords,
       });
@@ -1911,14 +1741,14 @@ function linkBased() {
       // Prepare Movie table
       columns[0].title = 'Film';
       columns[0].column_name = 'Film';
-      tblFilm = await createTable(context, project, {
+      tblFilm = await createTable(context, base, {
         title: 'Film',
         table_name: 'Film',
         columns: customColumns('custom', columns),
       });
       const filmRecords = await prepareRecords('Film', 100);
       await createBulkRows(context, {
-        project,
+        base,
         table: tblFilm,
         values: filmRecords,
       });
@@ -2120,17 +1950,55 @@ function linkBased() {
         rowId: 1,
       },
       body: [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        { Id: 1 },
+        { Id: 2 },
+        { Id: 3 },
+        { Id: 4 },
+        { Id: 5 },
+        { Id: 6 },
+        { Id: 7 },
+        { Id: 8 },
+        { Id: 9 },
+        { Id: 10 },
+        { Id: 11 },
+        { Id: 12 },
+        { Id: 13 },
+        { Id: 14 },
+        { Id: 15 },
+        { Id: 16 },
+        { Id: 17 },
+        { Id: 18 },
+        { Id: 19 },
+        { Id: 20 },
       ],
     });
     await ncAxiosLinkAdd({
       urlParams: {
         tableId: tblFilm.id,
-        linkId: getColumnId(columnsFilm, 'Actor List'),
+        linkId: getColumnId(columnsFilm, 'Actors'),
         rowId: 1,
       },
       body: [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        { Id: 1 },
+        { Id: 2 },
+        { Id: 3 },
+        { Id: 4 },
+        { Id: 5 },
+        { Id: 6 },
+        { Id: 7 },
+        { Id: 8 },
+        { Id: 9 },
+        { Id: 10 },
+        { Id: 11 },
+        { Id: 12 },
+        { Id: 13 },
+        { Id: 14 },
+        { Id: 15 },
+        { Id: 16 },
+        { Id: 17 },
+        { Id: 18 },
+        { Id: 19 },
+        { Id: 20 },
       ],
     });
 
@@ -2180,7 +2048,7 @@ function linkBased() {
     rsp = await ncAxiosLinkGet({
       urlParams: {
         tableId: tblFilm.id,
-        linkId: getColumnId(columnsFilm, 'Actor List'),
+        linkId: getColumnId(columnsFilm, 'Actors'),
         rowId: 1,
       },
     });
@@ -2225,7 +2093,7 @@ function linkBased() {
       const rsp = await ncAxiosLinkGet({
         urlParams: {
           tableId: tblFilm.id,
-          linkId: getColumnId(columnsFilm, 'Actor List'),
+          linkId: getColumnId(columnsFilm, 'Actors'),
           rowId: i,
         },
       });
@@ -2244,7 +2112,23 @@ function linkBased() {
         linkId: getColumnId(columnsActor, 'Films'),
         rowId: 1,
       },
-      body: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29],
+      body: [
+        { Id: 1 },
+        { Id: 3 },
+        { Id: 5 },
+        { Id: 7 },
+        { Id: 9 },
+        { Id: 11 },
+        { Id: 13 },
+        { Id: 15 },
+        { Id: 17 },
+        { Id: 19 },
+        { Id: 21 },
+        { Id: 23 },
+        { Id: 25 },
+        { Id: 27 },
+        { Id: 29 },
+      ],
     });
 
     // verify in Actor table
@@ -2268,7 +2152,7 @@ function linkBased() {
       const rsp = await ncAxiosLinkGet({
         urlParams: {
           tableId: tblFilm.id,
-          linkId: getColumnId(columnsFilm, 'Actor List'),
+          linkId: getColumnId(columnsFilm, 'Actors'),
           rowId: i,
         },
       });
@@ -2294,7 +2178,7 @@ function linkBased() {
         linkId: getColumnId(columnsCountry, 'Cities'),
         rowId: 1,
       },
-      body: [1, 2, 3],
+      body: [{ Id: 1 }, { Id: 2 }, { Id: 3 }],
     });
 
     // update the link
@@ -2304,7 +2188,7 @@ function linkBased() {
         linkId: getColumnId(columnsCountry, 'Cities'),
         rowId: 2,
       },
-      body: [2, 3],
+      body: [{ Id: 2 }, { Id: 3 }],
     });
 
     // verify record 1
@@ -2417,8 +2301,7 @@ function linkBased() {
     await ncAxiosLinkAdd({
       ...validParams,
       urlParams: { ...validParams.urlParams, tableId: 9999 },
-      status: 404,
-      msg: "Table with id '9999' not found",
+      status: unauthorizedResponse,
     });
 
     // Link Add: Invalid link ID
@@ -2436,7 +2319,7 @@ function linkBased() {
       ...validParams,
       urlParams: { ...validParams.urlParams, rowId: 9999 },
       status: 404,
-      msg: "Row with id '9999' not found",
+      msg: "Record with id '9999' not found",
     });
 
     // Body parameter error
@@ -2490,8 +2373,7 @@ function linkBased() {
     await ncAxiosLinkRemove({
       ...validParams,
       urlParams: { ...validParams.urlParams, tableId: 9999 },
-      status: 404,
-      msg: "Table with id '9999' not found",
+      status: unauthorizedResponse,
     });
 
     // Link Remove: Invalid link ID
@@ -2509,7 +2391,7 @@ function linkBased() {
       ...validParams,
       urlParams: { ...validParams.urlParams, rowId: 9999 },
       status: 404,
-      msg: "Row with id '9999' not found",
+      msg: "Record with id '9999' not found",
     });
 
     // Body parameter error
@@ -2563,8 +2445,7 @@ function linkBased() {
     await ncAxiosLinkGet({
       ...validParams,
       urlParams: { ...validParams.urlParams, tableId: 9999 },
-      status: 404,
-      msg: "Table with id '9999' not found",
+      status: unauthorizedResponse,
     });
 
     // Link List: Invalid link ID
@@ -2582,7 +2463,7 @@ function linkBased() {
       ...validParams,
       urlParams: { ...validParams.urlParams, rowId: 9999 },
       status: 404,
-      msg: "Row with id '9999' not found",
+      msg: "Record with id '9999' not found",
     });
 
     // Query parameter error
@@ -2606,9 +2487,11 @@ function linkBased() {
       status: 200,
     });
 
-    // Link List: Invalid query parameter - offset > total rows
+    // Link List: Invalid query parameter - offset > total records
     if (debugMode)
-      console.log('Link List: Invalid query parameter - offset > total rows');
+      console.log(
+        'Link List: Invalid query parameter - offset > total records',
+      );
     await ncAxiosLinkGet({
       ...validParams,
       query: { ...validParams.query, offset: 9999 },
@@ -2633,9 +2516,9 @@ function linkBased() {
       status: 200,
     });
 
-    // Link List: Invalid query parameter - limit > total rows
+    // Link List: Invalid query parameter - limit > total records
     if (debugMode)
-      console.log('Link List: Invalid query parameter - limit > total rows');
+      console.log('Link List: Invalid query parameter - limit > total records');
     await ncAxiosLinkGet({
       ...validParams,
       query: { ...validParams.query, limit: 9999 },

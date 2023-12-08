@@ -11,6 +11,7 @@ export class PagedResponseImpl<T> {
       l?: number;
       o?: number;
     } = {},
+    additionalProps?: Record<string, any>,
   ) {
     const { offset, limit } = extractLimitAndOffset(args);
 
@@ -31,10 +32,12 @@ export class PagedResponseImpl<T> {
         (Math.ceil(this.pageInfo.totalRows / this.pageInfo.pageSize) || 1);
     }
 
-    if (offset && offset >= count) {
+    if (additionalProps) Object.assign(this, additionalProps);
+
+    if (offset && offset >= +count) {
       this.errors = [
         {
-          message: 'Offset is beyond the total number of rows',
+          message: 'Offset is beyond the total number of records',
         },
       ];
     }
